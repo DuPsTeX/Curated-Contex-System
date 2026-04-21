@@ -5,8 +5,34 @@ import * as interceptor from './src/interceptor.js';
 import * as updater from './src/updater.js';
 import * as popup from './src/popup.js';
 
+/**
+ * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
+ * und darf sich NICHT ändern, sonst verlieren User ihre Einstellungen, sobald
+ * der Extension-Ordner anders heißt (z.B. nach Install via GitHub-Repo-Name).
+ */
 const MODULE_NAME = 'curated-context-system';
 const LOG_PREFIX = '[CCS]';
+
+/**
+ * Tatsächlicher Ordnername der Extension auf der Disk. Wird zur Laufzeit aus
+ * `import.meta.url` abgeleitet, weil SillyTavern's Extension-Cloner den Ordner
+ * typischerweise nach dem GitHub-Repo-Namen benennt (z.B. "Curated-Contex-System"),
+ * der von unserem stabilen MODULE_NAME abweichen kann. Dieser Wert wird NUR für
+ * `renderExtensionTemplateAsync` gebraucht – überall sonst reicht MODULE_NAME.
+ * Fallback auf MODULE_NAME, falls die URL-Analyse unerwartet fehlschlägt
+ * (dann verhält sich die Extension genau wie vor dem Fix).
+ */
+const EXTENSION_FOLDER = (() => {
+    try {
+        const url = new URL(import.meta.url);
+        const parts = url.pathname.split('/').filter(Boolean);
+        const idx = parts.indexOf('third-party');
+        if (idx >= 0 && idx + 1 < parts.length) {
+            return parts[idx + 1];
+        }
+    } catch { /* fall through */ }
+    return MODULE_NAME;
+})();
 
 const DEFAULT_SETTINGS = {
     enabled: true,
@@ -530,7 +556,7 @@ async function mountSettingsPanel() {
         return;
     }
     const html = await ctx.renderExtensionTemplateAsync(
-        `third-party/${MODULE_NAME}`,
+        `third-party/${EXTENSION_FOLDER}`,
         'settings',
         {},
         true,
