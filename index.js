@@ -53,27 +53,12 @@ function getSettings() {
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
         if (typeof s[key] === 'undefined') s[key] = DEFAULT_SETTINGS[key];
     }
-    // Seed der großen Prompt-Templates beim ersten Zugriff (Phase 2 Spec §10.2).
-    // Bewusst NICHT in DEFAULT_SETTINGS, weil die Strings ~3KB groß sind – sonst
-    // würde jeder Spread (DEFAULT_SETTINGS) sie neu kopieren. Zugriff via
-    // `initializer.DEFAULT_INIT_SYSTEM_PROMPT` / `updater.DEFAULT_UPDATE_SYSTEM_PROMPT`.
-    // Check auf `typeof === 'undefined'`, damit ein vom User explizit geleerter
-    // Textarea-Inhalt ('') NICHT wieder überschrieben wird (leerer String ≠ unset).
-    let seeded = false;
-    if (typeof s.initSystemPrompt === 'undefined') {
-        s.initSystemPrompt = initializer.DEFAULT_INIT_SYSTEM_PROMPT;
-        seeded = true;
-    }
-    if (typeof s.updateSystemPrompt === 'undefined') {
-        s.updateSystemPrompt = updater.DEFAULT_UPDATE_SYSTEM_PROMPT;
-        seeded = true;
-    }
-    if (seeded && typeof ctx.saveSettingsDebounced === 'function') {
-        // Einmaliges Persistieren nach dem Seeding, damit der User beim nächsten
-        // Öffnen des Panels nicht wieder den frisch gelesenen Default sieht,
-        // obwohl er inzwischen editiert hat (Konsistenz Disk ↔ Memory).
-        ctx.saveSettingsDebounced();
-    }
+    // Hinweis: frühere Versionen haben hier `initSystemPrompt` /
+    // `updateSystemPrompt` in die Settings geseedet. Das war PC-lokal und hat
+    // verhindert, dass User-Anpassungen zwischen PCs synchronisiert werden.
+    // Jetzt liegen die Prompts als Dateien im `prompts/`-Ordner und wandern per
+    // git push/pull mit. Wenn ein User ein altes Profile mit den obsoleten
+    // Keys hat, stören sie nicht – sie werden einfach nicht mehr gelesen.
     return s;
 }
 
@@ -183,9 +168,9 @@ async function onInitializeClicked() {
     });
 
     try {
-        // settings mitgeben, damit `initializer.buildInitialPrompt` bei Bedarf den
-        // vom User editierten `initSystemPrompt` als Template zieht (Phase 2 Schritt 7).
-        const result = await initializer.generateInitial({ ...config, settings: getSettings() });
+        // System-Prompt wird intern via `loadInitSystemPrompt()` aus `prompts/init-system.txt`
+        // geladen (mit in-Code-Fallback). Keine PC-lokalen Settings mehr nötig.
+        const result = await initializer.generateInitial(config);
         toastr.clear(progress);
         toastr.success(`Brain erstellt (${result.stats.xmlChars} Zeichen XML, ${result.stats.rawResponseChars} Zeichen Rohantwort).`, 'CCS');
         updateBrainStateUI();
@@ -317,7 +302,9 @@ async function onUpdateClicked() {
 
     let result;
     try {
-        result = await updater.runUpdate({ ctx, settings });
+        // System-Prompt wird intern via `loadUpdateSystemPrompt()` aus
+        // `prompts/update-system.txt` geladen (mit in-Code-Fallback).
+        result = await updater.runUpdate({ ctx });
     } catch (err) {
         toastr.clear(progress);
         const msg = err?.message || String(err);
@@ -347,7 +334,7 @@ async function onUpdateClicked() {
     // analysierten Messages bei nächstem Klick nicht wieder gescannt werden.
     if (!result.proposals.length) {
         try {
-            await updater.applyProposals([], result.migratedBrainXml, result.cursorIndex, settings);
+            await updater.applyProposals([], result.migratedBrainXml, result.cursorIndex);
             updateBrainStateUI();
             toastr.info('Keine neuen Einträge – Cursor aktualisiert.', 'CCS');
         } catch (err) {
@@ -402,7 +389,6 @@ async function onUpdateClicked() {
             approved,
             result.migratedBrainXml,
             result.cursorIndex,
-            settings,
         );
         updateBrainStateUI();
         const appliedN = applyResult.applied;
@@ -454,57 +440,6 @@ async function onDeleteClicked() {
     }
 }
 
-/**
- * Debounce-Intervall für das Auto-Save beim Tippen in den Prompt-Textareas.
- * 500 ms = Phase-2-Spec (siehe mvp-phase2-plan.md, "Konstanten / Magic Numbers").
- */
-const PROMPT_SAVE_DEBOUNCE_MS = 500;
-
-/**
- * Bindet einen Prompt-Textarea an eine Settings-Property. Zwei Trigger:
- *   - `input`: 500 ms debounced (User tippt noch) → flush.
- *   - `blur`:  sofort (User verlässt das Feld, pending debounce abbrechen).
- * Kein unnötiges Save, wenn sich der Wert nicht geändert hat.
- */
-function wirePromptEditor(key, $el) {
-    let timer = null;
-    const flush = () => {
-        if (timer) { clearTimeout(timer); timer = null; }
-        const s = getSettings();
-        const current = $el.val();
-        if (s[key] === current) return;
-        s[key] = current;
-        saveSettings();
-    };
-    $el.on('input', () => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(flush, PROMPT_SAVE_DEBOUNCE_MS);
-    });
-    $el.on('blur', flush);
-}
-
-/**
- * Reset-Flow für einen Prompt-Editor: Confirm-Popup → Settings auf Default,
- * Textarea neu befüllen, Toast. Kein No-op-Fast-Path, damit der User immer
- * eine sichtbare Bestätigung bekommt, dass der Reset stattgefunden hat.
- */
-async function resetPromptToDefault(key, defaultValue, $el, label) {
-    const ctx = getContext();
-    if (!ctx) return;
-    const res = await ctx.callGenericPopup(
-        `${label} auf Default zurücksetzen? Aktuelle Änderungen gehen verloren.`,
-        ctx.POPUP_TYPE.CONFIRM,
-        '',
-        { okButton: 'Zurücksetzen', cancelButton: 'Abbrechen' },
-    );
-    if (res !== ctx.POPUP_RESULT.AFFIRMATIVE) return;
-    const s = getSettings();
-    s[key] = defaultValue;
-    $el.val(defaultValue);
-    saveSettings();
-    toastr.success(`${label} zurückgesetzt.`, 'CCS');
-}
-
 function bindUI() {
     const settings = getSettings();
     const $enabled = $('#ccs-enabled');
@@ -526,24 +461,9 @@ function bindUI() {
     $('#ccs-update-btn').on('click', onUpdateClicked);
     $('#ccs-delete-btn').on('click', onDeleteClicked);
 
-    // Prompt-Editoren (Phase 2 Schritt 7): Textareas mit dem gespeicherten Wert
-    // initialisieren, Input/Blur-Handler anstöpseln, Reset-Buttons verdrahten.
-    const $initPrompt = $('#ccs-init-prompt');
-    const $updatePrompt = $('#ccs-update-prompt');
-    if ($initPrompt.length) {
-        $initPrompt.val(settings.initSystemPrompt || '');
-        wirePromptEditor('initSystemPrompt', $initPrompt);
-        $('#ccs-init-prompt-reset').on('click', () =>
-            resetPromptToDefault('initSystemPrompt', initializer.DEFAULT_INIT_SYSTEM_PROMPT, $initPrompt, 'Init-Prompt'),
-        );
-    }
-    if ($updatePrompt.length) {
-        $updatePrompt.val(settings.updateSystemPrompt || '');
-        wirePromptEditor('updateSystemPrompt', $updatePrompt);
-        $('#ccs-update-prompt-reset').on('click', () =>
-            resetPromptToDefault('updateSystemPrompt', updater.DEFAULT_UPDATE_SYSTEM_PROMPT, $updatePrompt, 'Update-Prompt'),
-        );
-    }
+    // Hinweis: Die früheren Prompt-Editor-Textareas wurden entfernt. Die System-
+    // Prompts leben jetzt als Dateien unter `prompts/init-system.txt` bzw.
+    // `prompts/update-system.txt` und wandern per `git push/pull` zwischen PCs.
 
     updateStatusUI();
     updateBrainStateUI();

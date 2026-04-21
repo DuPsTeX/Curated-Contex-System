@@ -40,15 +40,16 @@ const LANG_NAMES = {
 };
 
 /**
- * Default-System-Prompt für die Initial-Brain-Generierung.
+ * In-Code-Fallback für den Initial-System-Prompt. Wird NUR verwendet, wenn
+ * `prompts/init-system.txt` nicht gefetcht werden kann (Datei fehlt, Netzwerk-
+ * Fehler). Die Source of Truth ist seit dem File-basierten Refactor die Datei
+ * im Extension-Root – so wandern User-Anpassungen per `git push/pull` zwischen
+ * PCs mit.
  *
- * Enthält den Platzhalter `{{LANG_RULE}}` – der zur Laufzeit durch die konkrete
- * Sprach-Direktive ersetzt wird (dynamisch abhängig vom User-Dropdown). Der
- * Platzhalter steht in Regel 6. Wenn der User den Prompt im Settings-Panel
- * editiert und den Platzhalter entfernt, bleibt die Sprach-Anweisung im
- * userPrompt-Header trotzdem erhalten (doppelte Absicherung).
- *
- * Wird als Default genutzt, wenn `settings.initSystemPrompt` leer ist.
+ * Enthält den Platzhalter `{{LANG_RULE}}` – zur Laufzeit durch die konkrete
+ * Sprach-Direktive ersetzt (dynamisch abhängig vom User-Dropdown). Der Platz-
+ * halter steht in Regel 6. Im userPrompt-Header steht die Sprach-Anweisung
+ * zusätzlich als Absicherung, falls der Platzhalter im File entfernt wurde.
  */
 export const DEFAULT_INIT_SYSTEM_PROMPT = `You are an archivist. Your job: read the Character Card and Lorebook entries provided by the user, then produce a filled XML "brain document" describing what is KNOWN at the start of the roleplay.
 
@@ -118,6 +119,47 @@ The containers <locations>, <relationships>, <key_moments>, <arcs>, <scene>, <pi
 8. Main character name: use EXACTLY the name shown in "MAIN CHARACTER: [NAME]" above (case-sensitive).
 9. Escape XML special chars: & → &amp;, < → &lt;, > → &gt; inside text content.
 10. Output valid XML, nothing else. No code fences. No "Here is the document:" prefix. Start with <brain and end with </brain>.`;
+
+/**
+ * Cache für das aus `prompts/init-system.txt` geladene Template. Beim ersten
+ * Call wird gefetcht; danach in-memory wiederverwendet. Null = noch nicht
+ * geladen; String = geladener Inhalt (getrimmt) oder Fallback-Default.
+ */
+let _cachedInitPromptTemplate = null;
+
+/**
+ * Lädt den Init-System-Prompt aus `prompts/init-system.txt` (Extension-Root).
+ * Die Datei ist die Source of Truth und wandert per `git push/pull` zwischen PCs.
+ * Bei Fetch-Fehler (404, Netzwerk, leere Datei) → `DEFAULT_INIT_SYSTEM_PROMPT`.
+ *
+ * Relative Auflösung via `new URL('../prompts/…', import.meta.url)` – das
+ * funktioniert unabhängig vom Extension-Ordnernamen (SillyTavern benennt den
+ * Clone-Ordner nach dem Repo-Namen, der nicht zwingend `curated-context-system`
+ * heißt).
+ *
+ * Nach dem ersten erfolgreichen/fehlgeschlagenen Load wird das Ergebnis
+ * gecached – User muss SillyTavern neu laden (F5), damit Änderungen an der
+ * Datei sichtbar werden. Das ist in der `prompts/README.md` dokumentiert.
+ *
+ * @returns {Promise<string>} – das Template (getrimmt, mit {{LANG_RULE}}-Slot)
+ */
+export async function loadInitSystemPrompt() {
+    if (typeof _cachedInitPromptTemplate === 'string') return _cachedInitPromptTemplate;
+    try {
+        const url = new URL('../prompts/init-system.txt', import.meta.url);
+        const res = await fetch(url.href, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = (await res.text()).trim();
+        if (!text) throw new Error('empty file');
+        _cachedInitPromptTemplate = text;
+        console.log(`${LOG_PREFIX} loaded init prompt from file (${text.length} chars)`);
+        return text;
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} could not load prompts/init-system.txt, using built-in default:`, err?.message || err);
+        _cachedInitPromptTemplate = DEFAULT_INIT_SYSTEM_PROMPT;
+        return DEFAULT_INIT_SYSTEM_PROMPT;
+    }
+}
 
 /**
  * Baut die dynamische Sprach-Regel, die in Rule 6 des Init-System-Prompts
@@ -367,15 +409,18 @@ export function validateBrainXml(xml) {
 }
 
 /**
- * Kompletter Initial-Call: Collect → Prompt → LLM → Validate → Save.
+ * Kompletter Initial-Call: Collect → Prompt-Template laden → Prompt bauen →
+ * LLM → Validate → Save.
  * @param {object} [config] – Collector-Config (character/chat/persona/global) + optional lang
  * @param {boolean} [config.character]
  * @param {boolean} [config.chat]
  * @param {boolean} [config.persona]
  * @param {boolean} [config.global]
  * @param {string}  [config.lang] – Ziel-Sprachcode ('de', 'en', ...). Leer = Auto aus Quellen.
- * @param {object}  [config.settings] – Extension-Settings (für initSystemPrompt-Override).
- *                   Wenn gesetzt und nicht-leer: überschreibt DEFAULT_INIT_SYSTEM_PROMPT.
+ *
+ * Prompt-Template wird aus `prompts/init-system.txt` gefetcht (oder aus dem
+ * in-Code-Fallback, falls die Datei fehlt). Es gibt KEIN `settings.initSystemPrompt`
+ * mehr – Anpassungen landen direkt in der Datei und wandern per git push/pull.
  * @returns {Promise<{ xml: string, stats: object }>}
  */
 export async function generateInitial(config = {}) {
@@ -384,13 +429,14 @@ export async function generateInitial(config = {}) {
         throw new Error('generateRaw not available on SillyTavern context');
     }
 
-    const { lang, settings, ...collectorConfig } = config;
+    const { lang, ...collectorConfig } = config;
     console.log(`${LOG_PREFIX} generateInitial: collecting sources...`, { ...collectorConfig, lang: lang || '(auto)' });
     const collected = await collector.collect(collectorConfig);
 
+    const systemPromptTemplate = await loadInitSystemPrompt();
     const { systemPrompt, userPrompt, stats } = buildInitialPrompt(collected, {
         lang,
-        systemPromptTemplate: trimString(settings?.initSystemPrompt),
+        systemPromptTemplate,
     });
     console.log(`${LOG_PREFIX} generateInitial: prompt built`, stats);
 

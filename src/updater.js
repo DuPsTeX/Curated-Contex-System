@@ -221,9 +221,11 @@ const SCAN_WINDOW_FALLBACK = 20;   // wenn kein Cursor gesetzt ist
 const UPDATE_RESPONSE_LENGTH = 6000;
 
 /**
- * Default-systemPrompt für den Update-Lauf (Spec §9.2). Englisch, damit das LLM
- * strukturellen Anweisungen zuverlässig folgt; JSON-Keys englisch, Feld-INHALTE
- * folgen dem `@lang`-Attribut des Brains (Regel 7).
+ * In-Code-Fallback für den Update-System-Prompt. Wird NUR verwendet, wenn
+ * `prompts/update-system.txt` nicht gefetcht werden kann (Datei fehlt, Netzwerk-
+ * Fehler). Source of Truth ist seit dem File-basierten Refactor die Datei im
+ * Extension-Root – so wandern User-Anpassungen per `git push/pull` zwischen PCs
+ * mit.
  *
  * Wichtig: *kein* Markdown-Fence-Output erlaubt – wir strippen zwar in
  * `extractJson`, aber je weniger das LLM hineinschreibt, desto robuster.
@@ -317,6 +319,41 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
   "new_pins": []
 }
 `;
+
+/**
+ * Cache für das aus `prompts/update-system.txt` geladene Template. Beim ersten
+ * Call wird gefetcht; danach in-memory wiederverwendet. Null = noch nicht geladen.
+ */
+let _cachedUpdatePromptTemplate = null;
+
+/**
+ * Lädt den Update-System-Prompt aus `prompts/update-system.txt` (Extension-Root).
+ * Source of Truth wandert per `git push/pull` zwischen PCs. Bei Fetch-Fehler
+ * (404 / Netzwerk / leere Datei) → in-Code-Fallback `DEFAULT_UPDATE_SYSTEM_PROMPT`.
+ *
+ * Siehe auch `initializer.loadInitSystemPrompt()` – gleiche Mechanik. Cache
+ * invalidiert erst bei SillyTavern-Reload (F5), damit wir pro Session nur einmal
+ * fetchen.
+ *
+ * @returns {Promise<string>} – das Template (getrimmt)
+ */
+export async function loadUpdateSystemPrompt() {
+    if (typeof _cachedUpdatePromptTemplate === 'string') return _cachedUpdatePromptTemplate;
+    try {
+        const url = new URL('../prompts/update-system.txt', import.meta.url);
+        const res = await fetch(url.href, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = (await res.text()).trim();
+        if (!text) throw new Error('empty file');
+        _cachedUpdatePromptTemplate = text;
+        console.log(`${LOG_PREFIX} loaded update prompt from file (${text.length} chars)`);
+        return text;
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} could not load prompts/update-system.txt, using built-in default:`, err?.message || err);
+        _cachedUpdatePromptTemplate = DEFAULT_UPDATE_SYSTEM_PROMPT;
+        return DEFAULT_UPDATE_SYSTEM_PROMPT;
+    }
+}
 
 /**
  * Baut das Scan-Window laut Spec §4:
@@ -786,9 +823,12 @@ export function validateProposals(json, migratedBrainXml) {
  *
  * @param {object} opts
  * @param {object} opts.ctx – SillyTavern getContext()
- * @param {object} opts.settings – Extension-Settings (u.a. updateSystemPrompt)
+ *
+ * Der System-Prompt wird aus `prompts/update-system.txt` gefetcht (oder aus dem
+ * in-Code-Fallback, falls die Datei fehlt). Es gibt KEIN `settings.updateSystemPrompt`
+ * mehr – Anpassungen landen direkt in der Datei und wandern per git push/pull.
  */
-export async function runUpdate({ ctx, settings }) {
+export async function runUpdate({ ctx }) {
     if (!ctx) throw new Error('runUpdate: ctx required');
 
     const originalXml = await storage.getLivingDocument();
@@ -830,7 +870,7 @@ export async function runUpdate({ ctx, settings }) {
         : Math.min(SCAN_WINDOW_FALLBACK, chat.length);
     const capped = rawSliceLength > SCAN_WINDOW_MAX;
 
-    const systemPrompt = trimString(settings?.updateSystemPrompt) || DEFAULT_UPDATE_SYSTEM_PROMPT;
+    const systemPrompt = await loadUpdateSystemPrompt();
     const userPrompt = buildUpdateUserPrompt({
         brainXml: migratedBrainXml,
         scanWindow,

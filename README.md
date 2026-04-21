@@ -10,13 +10,23 @@ SillyTavern-Extension für autor-kuratiertes Langzeitgedächtnis beim LLM-Rolepl
 - **Anzeigen / Bearbeiten** – Textarea-Editor mit Auto-Repair und Validation beim Speichern.
 - **Brain updaten** – analysiert neue Chat-Messages, schlägt strukturierte Updates pro Kategorie vor (NPCs, Beziehungen, Orte, Key-Moments, Arc-Fortschritt, current_state, …). Reviewbare Card-UI mit Checkbox pro Proposal, Inline-Edit, Referenz-Validation. Cursor-basierte Idempotenz.
 - **Löschen** – entfernt das Brain des aktuellen Chats.
-- **Erweitert: Prompt-Vorlagen** – Init- und Update-System-Prompts sind editierbar (Auto-Save + Reset-auf-Default).
+- **Prompts anpassbar via Files** – siehe `prompts/` (wandert per git zwischen PCs).
 
 Der Interceptor (Schicht 1 "Immer-Kern") injiziert das komplette Brain pro Gen-Call als `<authoritative_context>`-Envelope via `setExtensionPrompt`.
 
 ## Installation
 
-Diesen Ordner nach `SillyTavern/public/scripts/extensions/third-party/` legen, SillyTavern neu laden, im Extensions-Panel aktivieren.
+Diesen Ordner nach `SillyTavern/public/scripts/extensions/third-party/` legen, SillyTavern neu laden, im Extensions-Panel aktivieren. Alternativ über den ST-Extensions-Manager direkt vom Repo installieren.
+
+## Prompts customizen
+
+Die System-Prompts für "Brain initialisieren" und "Brain updaten" liegen als Textdateien im Extension-Ordner:
+
+- `prompts/init-system.txt` – Prompt für die Brain-Initialisierung
+- `prompts/update-system.txt` – Prompt für Brain-Updates
+- `prompts/README.md` – Editier-Anleitung + Hinweise zum `{{LANG_RULE}}`-Platzhalter
+
+Editieren, speichern, SillyTavern neu laden (F5). Änderungen wandern per `git push/pull` zwischen PCs mit. Fehlt/ist eine Datei leer, greift ein in-Code-Fallback — die Extension bricht nie.
 
 ## Konzept
 

@@ -95,20 +95,29 @@ Root `<brain version="1" lang="…">` mit diesen Containern:
 
 ### Geänderte Dateien
 
-- `index.js` – neuer `onUpdateClicked`-Handler: Pre-Checks → Progress-Toast → `runUpdate` → Fallunterscheidung (scanWindowEmpty → Info-Toast; shape_ok=false → Error; shape_ok=true + leer → Cursor-only-Save; shape_ok=true + Proposals → Popup). Nach User-Approval `applyProposals` mit 3-Fall-Summary-Toast (alles übernommen / teilweise / alles fehlgeschlagen). Zusätzlich: Prompt-Editor-Handlers für `#ccs-init-prompt` / `#ccs-update-prompt` mit 500 ms debounced Input-Save + Blur-Flush + Reset-auf-Default via Confirm-Popup.
+- `index.js` – neuer `onUpdateClicked`-Handler: Pre-Checks → Progress-Toast → `runUpdate` → Fallunterscheidung (scanWindowEmpty → Info-Toast; shape_ok=false → Error; shape_ok=true + leer → Cursor-only-Save; shape_ok=true + Proposals → Popup). Nach User-Approval `applyProposals` mit 3-Fall-Summary-Toast (alles übernommen / teilweise / alles fehlgeschlagen).
 
-- `settings.html` – neuer "Brain updaten"-Button in der Action-Leiste + Collapsible "Erweitert: Prompt-Vorlagen" mit zwei Textareas + Reset-Buttons + Hinweis zum `{{LANG_RULE}}`-Platzhalter.
+- `settings.html` – neuer "Brain updaten"-Button in der Action-Leiste + Hinweis-Box, die auf den `prompts/`-Ordner verweist (File-basierte Prompt-Anpassung).
 
-- `style.css` – komplettes Styling für `.ccs-update-popup`, `.ccs-card-*`, `.ccs-field-*` (Pflichtfeld-Error-Highlighting in rot, disabled-Card bei unchecked-State) + `.ccs-prompt-editor` (monospace, `white-space: pre`, `min-height: 20em`, resize vertical).
+- `style.css` – komplettes Styling für `.ccs-update-popup`, `.ccs-card-*`, `.ccs-field-*` (Pflichtfeld-Error-Highlighting in rot, disabled-Card bei unchecked-State).
 
-- `src/initializer.js` – `DEFAULT_INIT_SYSTEM_PROMPT` als exportierte Konstante extrahiert. `buildInitialPrompt` akzeptiert `opts.systemPromptTemplate` und ersetzt `{{LANG_RULE}}` dynamisch. `generateInitial(config)` liest `settings.initSystemPrompt` aus `config.settings`. `onInitializeClicked` reicht `{ ...config, settings: getSettings() }` durch.
+- `src/initializer.js` – `DEFAULT_INIT_SYSTEM_PROMPT` als exportierte Konstante (nur noch in-Code-Fallback). `loadInitSystemPrompt()` fetcht `prompts/init-system.txt` via `import.meta.url`, cached module-scoped. `buildInitialPrompt` akzeptiert `opts.systemPromptTemplate` und ersetzt `{{LANG_RULE}}` dynamisch. `generateInitial(config)` ruft intern `loadInitSystemPrompt()` auf – keine Settings-Param-Kopplung mehr.
 
-### Neue Settings-Felder mit Seed-Logik
+- `src/updater.js` – analog: `loadUpdateSystemPrompt()` fetcht `prompts/update-system.txt`, `runUpdate({ ctx })` (ohne `settings`) zieht den Prompt intern.
 
-`ccs.extensionSettings['curated-context-system']` enthält ab Phase 2:
-- `enabled` (bool) – unverändert.
-- `initSystemPrompt` (string) – Default wird beim ersten `getSettings()`-Zugriff aus `initializer.DEFAULT_INIT_SYSTEM_PROMPT` geseedet + via `saveSettingsDebounced()` persistiert. Bewusst NICHT in `DEFAULT_SETTINGS`, weil die Strings ~3KB groß sind und sonst jeder Spread sie neu allokieren würde. Check via `typeof === 'undefined'`, damit ein vom User explizit auf `''` geleerter Textarea NICHT wieder mit Default überschrieben wird.
-- `updateSystemPrompt` (string) – analog, Default aus `updater.DEFAULT_UPDATE_SYSTEM_PROMPT`.
+### File-basierte System-Prompts (statt Settings-Seed)
+
+Die System-Prompts leben NICHT in `extensionSettings`, sondern als Dateien im Extension-Ordner:
+
+- `prompts/init-system.txt` – Prompt für `initializer.generateInitial()`
+- `prompts/update-system.txt` – Prompt für `updater.runUpdate()`
+- `prompts/README.md` – Editier-Anleitung für User
+
+**Warum files statt settings?** SillyTavern speichert `extensionSettings` pro User-Profil in einem ST-Data-Ordner außerhalb des Repos. Das heißt, Prompt-Edits wanderten früher nicht per `git push/pull` zwischen PCs mit. Mit Files im Repo sind sie Teil des Git-Zustands und synchronisieren sich sauber.
+
+**Lade-Mechanismus:** `new URL('../prompts/...', import.meta.url)` + `fetch()` mit `cache: 'no-cache'`. Eine module-scoped Variable cached das Ergebnis pro Session (F5 bustet den Cache). Bei Fetch-Fehler (404, Netzwerk, leere Datei) greift der in-Code-Fallback (`DEFAULT_INIT_SYSTEM_PROMPT` bzw. `DEFAULT_UPDATE_SYSTEM_PROMPT`). Extension bricht nie, auch wenn Files fehlen.
+
+**Settings-Feld:** ab dieser Version nur noch `enabled` (bool). Die alten Keys `initSystemPrompt` / `updateSystemPrompt` aus früheren Installs bleiben in `extensionSettings` liegen, werden aber ignoriert – sie stören nicht.
 
 ### Brain-Schema-Änderungen (Phase 2)
 
@@ -135,7 +144,7 @@ Zusätzlich zu Phase 1 verfügbar über `window.ccs`:
 - **Applied==0 && failed==0 → Save erlaubt.** Dieser Pfad ist der "Cursor-only-Save", wenn `shape_ok=true` aber das Array leer ist. Kein User-Input-Popup, nur Cursor nachziehen.
 - **Applied==0 && failed>0 → KEIN Save.** Brain + Cursor bleiben stehen. Der Autor bekommt Error-Toast und kann entweder das Brain manuell reparieren oder den Update-Button erneut klicken.
 - **Popup-Validation synchron.** `popupApi.validate()` ist synchron und deterministisch; kann im `onClosing`-Hook direkt ausgewertet werden. Fehler → `return false` → Popup bleibt offen mit rotem Highlighting + Focus-Fallback.
-- **Prompt-Customizing über Seed-in-Settings.** User sieht beim ersten Öffnen den kompletten Default im Textarea (weil gerade geseedet), nicht ein leeres Feld mit Placeholder. Änderung wird nach 500 ms debounced oder sofort bei Blur gespeichert. Reset nur via Confirm-Popup (kein versehentlicher Datenverlust).
+- **Prompt-Customizing über Files im Repo (statt Settings).** Ursprünglich waren die Prompts in `extensionSettings` geseedet, editierbar via Textarea im Panel. Problem: `extensionSettings` liegen außerhalb des Git-Repos, also wanderten Edits nicht zwischen PCs mit. Jetzt leben die Prompts als `prompts/*.txt` im Repo, werden per `fetch()` geladen und via in-Code-Fallback abgesichert. Editor-UI entfernt; User editieren die Files direkt im Text-Editor und reloaden SillyTavern.
 - **System-Prompts auf Englisch, UI auf Deutsch.** LLMs folgen strukturellen Anweisungen in Englisch zuverlässiger. UI-Strings und Code-Kommentare bleiben Deutsch.
 
 ## Coding-Guidelines

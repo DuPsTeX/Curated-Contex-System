@@ -41,34 +41,10 @@
                 </button>
             </div>
 
-            <div class="inline-drawer ccs-advanced">
-                <div class="inline-drawer-toggle inline-drawer-header">
-                    <b>Erweitert: Prompt-Vorlagen</b>
-                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                </div>
-                <div class="inline-drawer-content">
-                    <small class="ccs-prompt-hint">
-                        Diese Prompts werden an das LLM gesendet, wenn du "Brain initialisieren" bzw. "Brain updaten" klickst. Änderungen werden automatisch gespeichert (bei Fokus-Verlust oder 500 ms nach der letzten Eingabe). Der Platzhalter <code>{{LANG_RULE}}</code> im Init-Prompt wird zur Laufzeit durch die gewählte Sprach-Regel ersetzt – lass ihn stehen, wenn du die Sprach-Auswahl im Init-Popup weiter nutzen willst.
-                    </small>
-
-                    <div class="ccs-prompt-block">
-                        <label for="ccs-init-prompt"><strong>Init-System-Prompt</strong></label>
-                        <textarea id="ccs-init-prompt" class="ccs-prompt-editor text_pole" spellcheck="false"></textarea>
-                        <button id="ccs-init-prompt-reset" class="menu_button" type="button" title="Setzt den Init-Prompt auf den mitgelieferten Default zurück.">
-                            <i class="fa-solid fa-arrow-rotate-left"></i>
-                            <span>Auf Default zurücksetzen</span>
-                        </button>
-                    </div>
-
-                    <div class="ccs-prompt-block">
-                        <label for="ccs-update-prompt"><strong>Update-System-Prompt</strong></label>
-                        <textarea id="ccs-update-prompt" class="ccs-prompt-editor text_pole" spellcheck="false"></textarea>
-                        <button id="ccs-update-prompt-reset" class="menu_button" type="button" title="Setzt den Update-Prompt auf den mitgelieferten Default zurück.">
-                            <i class="fa-solid fa-arrow-rotate-left"></i>
-                            <span>Auf Default zurücksetzen</span>
-                        </button>
-                    </div>
-                </div>
+            <div class="ccs-advanced">
+                <small class="ccs-prompt-hint">
+                    <strong>Prompts anpassen:</strong> Die System-Prompts für "Brain initialisieren" und "Brain updaten" liegen als Dateien im Extension-Ordner unter <code>prompts/init-system.txt</code> bzw. <code>prompts/update-system.txt</code>. Editier sie mit einem Text-Editor, speichere und lade SillyTavern neu (F5). Die Änderungen wandern per <code>git push/pull</code> zwischen deinen PCs – siehe <code>prompts/README.md</code> für Details. Der Platzhalter <code>{{LANG_RULE}}</code> im Init-Prompt wird zur Laufzeit durch die gewählte Sprach-Regel ersetzt.
+                </small>
             </div>
         </div>
     </div>
