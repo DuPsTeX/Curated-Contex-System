@@ -1,0 +1,75 @@
+<div class="ccs-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Curated Context System</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <small class="ccs-description">
+                Autor-kuratiertes Langzeitgedächtnis für Roleplay-Chats. Phase 1 – Gerüst.
+            </small>
+
+            <label class="checkbox_label" for="ccs-enabled">
+                <input id="ccs-enabled" type="checkbox" />
+                <span>Aktiviert</span>
+            </label>
+
+            <div class="ccs-status-line">
+                Status: <span id="ccs-status" class="ccs-status--inactive">...</span>
+            </div>
+
+            <div class="ccs-brain-row">
+                <span id="ccs-brain-state" class="ccs-brain-state">Brain: unbekannt</span>
+            </div>
+
+            <div class="ccs-actions">
+                <button id="ccs-init-btn" class="menu_button" type="button" title="Initialisiert das Brain aus Character Card + Lorebooks.">
+                    <i class="fa-solid fa-brain"></i>
+                    <span>Brain initialisieren</span>
+                </button>
+                <button id="ccs-view-btn" class="menu_button" type="button" title="Zeigt das aktuelle Brain-XML an und erlaubt direktes Editieren. Beim Speichern wird validiert.">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                    <span>Anzeigen / Bearbeiten</span>
+                </button>
+                <button id="ccs-update-btn" class="menu_button" type="button" title="Analysiert den Chat-Fortschritt und schlägt strukturierte Brain-Updates vor.">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i>
+                    <span>Brain updaten</span>
+                </button>
+                <button id="ccs-delete-btn" class="menu_button menu_button_error" type="button" title="Löscht das Brain des aktuellen Chats.">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>Löschen</span>
+                </button>
+            </div>
+
+            <div class="inline-drawer ccs-advanced">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <b>Erweitert: Prompt-Vorlagen</b>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <small class="ccs-prompt-hint">
+                        Diese Prompts werden an das LLM gesendet, wenn du "Brain initialisieren" bzw. "Brain updaten" klickst. Änderungen werden automatisch gespeichert (bei Fokus-Verlust oder 500 ms nach der letzten Eingabe). Der Platzhalter <code>{{LANG_RULE}}</code> im Init-Prompt wird zur Laufzeit durch die gewählte Sprach-Regel ersetzt – lass ihn stehen, wenn du die Sprach-Auswahl im Init-Popup weiter nutzen willst.
+                    </small>
+
+                    <div class="ccs-prompt-block">
+                        <label for="ccs-init-prompt"><strong>Init-System-Prompt</strong></label>
+                        <textarea id="ccs-init-prompt" class="ccs-prompt-editor text_pole" spellcheck="false"></textarea>
+                        <button id="ccs-init-prompt-reset" class="menu_button" type="button" title="Setzt den Init-Prompt auf den mitgelieferten Default zurück.">
+                            <i class="fa-solid fa-arrow-rotate-left"></i>
+                            <span>Auf Default zurücksetzen</span>
+                        </button>
+                    </div>
+
+                    <div class="ccs-prompt-block">
+                        <label for="ccs-update-prompt"><strong>Update-System-Prompt</strong></label>
+                        <textarea id="ccs-update-prompt" class="ccs-prompt-editor text_pole" spellcheck="false"></textarea>
+                        <button id="ccs-update-prompt-reset" class="menu_button" type="button" title="Setzt den Update-Prompt auf den mitgelieferten Default zurück.">
+                            <i class="fa-solid fa-arrow-rotate-left"></i>
+                            <span>Auf Default zurücksetzen</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

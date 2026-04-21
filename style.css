@@ -1,0 +1,342 @@
+.ccs-settings .ccs-description {
+    display: block;
+    margin-bottom: 0.5em;
+    opacity: 0.8;
+}
+
+.ccs-settings .ccs-status-line {
+    margin-top: 0.5em;
+    font-size: 0.9em;
+}
+
+.ccs-settings .ccs-status--active {
+    color: #4caf50;
+    font-weight: bold;
+}
+
+.ccs-settings .ccs-status--inactive {
+    color: #9e9e9e;
+}
+
+.ccs-settings .ccs-brain-row {
+    margin-top: 0.5em;
+    font-size: 0.9em;
+}
+
+.ccs-settings .ccs-brain-state--has {
+    color: #4caf50;
+    font-weight: bold;
+}
+
+.ccs-settings .ccs-brain-state--empty {
+    color: #9e9e9e;
+}
+
+.ccs-settings .ccs-actions {
+    margin-top: 0.75em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+/* ==========================================================================
+   Erweitert-Block (Phase 2 Schritt 7) – Prompt-Editor-UI
+   ========================================================================== */
+
+.ccs-settings .ccs-advanced {
+    margin-top: 0.9em;
+    padding-top: 0.6em;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ccs-settings .ccs-prompt-hint {
+    display: block;
+    margin: 0.4em 0 0.6em 0;
+    opacity: 0.85;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.ccs-settings .ccs-prompt-hint code {
+    font-family: monospace;
+    padding: 0.05em 0.35em;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    font-size: 0.95em;
+}
+
+.ccs-settings .ccs-prompt-block {
+    margin: 0.75em 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35em;
+}
+
+.ccs-settings .ccs-prompt-block > button {
+    align-self: flex-start;
+}
+
+.ccs-prompt-editor {
+    width: 100%;
+    min-height: 20em;
+    font-family: monospace;
+    white-space: pre;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.ccs-source-popup {
+    text-align: left;
+    min-width: 320px;
+}
+
+.ccs-source-popup h3 {
+    margin: 0 0 0.5em 0;
+}
+
+.ccs-source-popup p {
+    margin: 0 0 0.75em 0;
+    opacity: 0.85;
+}
+
+.ccs-source-popup .checkbox_label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.25em 0;
+}
+
+.ccs-source-popup .ccs-lang-row {
+    margin-top: 0.75em;
+    padding-top: 0.75em;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35em;
+}
+
+.ccs-source-popup .ccs-lang-row select {
+    width: 100%;
+}
+
+.ccs-source-popup .ccs-lang-hint {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+.ccs-view-textarea {
+    resize: vertical;
+}
+
+.ccs-edit-popup .ccs-edit-hint {
+    margin: 0 0 0.6em 0;
+    padding: 0.5em 0.75em;
+    background: rgba(255, 200, 0, 0.08);
+    border-left: 3px solid rgba(255, 200, 0, 0.5);
+    border-radius: 3px;
+    font-size: 0.9em;
+    opacity: 0.95;
+}
+
+/* ==========================================================================
+   Update-Popup (Phase 2) – Card-basierte Review-UI für Brain-Update-Vorschläge
+   ========================================================================== */
+
+.ccs-update-popup {
+    text-align: left;
+    min-width: 320px;
+    max-width: 100%;
+}
+
+.ccs-update-popup h3 {
+    margin: 0 0 0.4em 0;
+}
+
+.ccs-update-popup .ccs-update-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 0.5em;
+    margin-bottom: 0.5em;
+    background: inherit;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ccs-update-popup .ccs-reasoning {
+    margin: 0.25em 0 0.5em 0;
+    padding: 0.5em 0.75em;
+    background: rgba(100, 180, 255, 0.06);
+    border-left: 3px solid rgba(100, 180, 255, 0.5);
+    border-radius: 3px;
+    font-size: 0.9em;
+    opacity: 0.95;
+}
+
+.ccs-update-popup .ccs-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    margin-top: 0.4em;
+}
+
+.ccs-update-popup .ccs-counter {
+    font-size: 0.9em;
+    opacity: 0.85;
+    margin-right: auto;
+}
+
+.ccs-update-popup .ccs-empty-hint {
+    padding: 1em;
+    text-align: center;
+    opacity: 0.75;
+    font-style: italic;
+}
+
+/* --- Sektion pro Kategorie ------------------------------------------------ */
+
+.ccs-update-popup .ccs-section {
+    margin: 0.75em 0;
+}
+
+.ccs-update-popup .ccs-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.4em;
+    padding: 0.35em 0.5em;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 3px;
+    font-size: 0.95em;
+}
+
+.ccs-update-popup .ccs-section-count {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+/* --- Einzelne Card -------------------------------------------------------- */
+
+.ccs-update-popup .ccs-card {
+    margin: 0.4em 0;
+    padding: 0.5em 0.75em;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.ccs-update-popup .ccs-card.ccs-card-disabled {
+    opacity: 0.45;
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.ccs-update-popup .ccs-card.ccs-card-disabled .ccs-card-body,
+.ccs-update-popup .ccs-card.ccs-card-disabled .ccs-card-id {
+    pointer-events: none;
+    filter: grayscale(0.3);
+}
+
+.ccs-update-popup .ccs-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-bottom: 0.4em;
+}
+
+.ccs-update-popup .ccs-card-checkbox {
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.ccs-update-popup .ccs-card-icon {
+    opacity: 0.8;
+    flex: 0 0 auto;
+}
+
+.ccs-update-popup .ccs-card-title {
+    font-weight: 600;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ccs-update-popup .ccs-card-id {
+    margin-top: 0.3em;
+    font-family: monospace;
+    font-size: 0.8em;
+    opacity: 0.6;
+    user-select: text;
+}
+
+.ccs-update-popup .ccs-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+}
+
+/* --- Felder --------------------------------------------------------------- */
+
+.ccs-update-popup .ccs-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+}
+
+.ccs-update-popup .ccs-field-label {
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
+.ccs-update-popup .ccs-field-label.ccs-required::after {
+    content: '';
+}
+
+.ccs-update-popup .ccs-field-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.ccs-update-popup .ccs-field-input.ccs-field-error,
+.ccs-update-popup .ccs-textarea.ccs-field-error {
+    border-color: #e53935 !important;
+    box-shadow: 0 0 0 1px rgba(229, 57, 53, 0.4);
+}
+
+/* --- Textarea mit Collapse ----------------------------------------------- */
+
+.ccs-update-popup .ccs-textarea-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25em;
+}
+
+.ccs-update-popup .ccs-textarea {
+    width: 100%;
+    min-height: 4em;
+    resize: vertical;
+    font-family: inherit;
+    white-space: pre-wrap;
+    box-sizing: border-box;
+}
+
+/* Collapsed-Zustand: Textarea wird auf kleine Höhe geclamped, Toggle sichtbar. */
+.ccs-update-popup .ccs-textarea-wrap.ccs-collapsible.ccs-collapsed .ccs-textarea {
+    max-height: 3.2em;
+    min-height: 3.2em;
+    overflow: hidden;
+    resize: none;
+}
+
+.ccs-update-popup .ccs-textarea-wrap.ccs-collapsible:not(.ccs-collapsed) .ccs-textarea {
+    max-height: none;
+    min-height: 8em;
+}
+
+.ccs-update-popup .ccs-collapse-toggle {
+    align-self: flex-start;
+    font-size: 0.8em;
+    padding: 0.15em 0.6em;
+}
