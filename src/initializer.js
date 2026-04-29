@@ -40,11 +40,10 @@ const LANG_NAMES = {
 };
 
 /**
- * In-Code-Fallback für den Initial-System-Prompt. Wird NUR verwendet, wenn
- * `prompts/init-system.txt` nicht gefetcht werden kann (Datei fehlt, Netzwerk-
- * Fehler). Die Source of Truth ist seit dem File-basierten Refactor die Datei
- * im Extension-Root – so wandern User-Anpassungen per `git push/pull` zwischen
- * PCs mit.
+ * Referenz-Kopie des Initial-System-Prompts. Dient nur als Dokumentation und
+ * zur manuellen Wiederherstellung. Zur Laufzeit wird der Prompt AUSSCHLIESSLICH
+ * aus `prompts/init-system.txt` geladen – fehlt die Datei, bricht die
+ * Generierung mit einem Fehler ab, statt still auf diesen Default zu fallen.
  *
  * Enthält den Platzhalter `{{LANG_RULE}}` – zur Laufzeit durch die konkrete
  * Sprach-Direktive ersetzt (dynamisch abhängig vom User-Dropdown). Der Platz-
@@ -145,20 +144,18 @@ let _cachedInitPromptTemplate = null;
  */
 export async function loadInitSystemPrompt() {
     if (typeof _cachedInitPromptTemplate === 'string') return _cachedInitPromptTemplate;
-    try {
-        const url = new URL('../prompts/init-system.txt', import.meta.url);
-        const res = await fetch(url.href, { cache: 'no-cache' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = (await res.text()).trim();
-        if (!text) throw new Error('empty file');
-        _cachedInitPromptTemplate = text;
-        console.log(`${LOG_PREFIX} loaded init prompt from file (${text.length} chars)`);
-        return text;
-    } catch (err) {
-        console.warn(`${LOG_PREFIX} could not load prompts/init-system.txt, using built-in default:`, err?.message || err);
-        _cachedInitPromptTemplate = DEFAULT_INIT_SYSTEM_PROMPT;
-        return DEFAULT_INIT_SYSTEM_PROMPT;
+    const url = new URL('../prompts/init-system.txt', import.meta.url);
+    const res = await fetch(url.href, { cache: 'no-cache' });
+    if (!res.ok) {
+        throw new Error(`Konnte prompts/init-system.txt nicht laden (HTTP ${res.status}). Prüfe, ob die Datei im Extension-Ordner unter dem Verzeichnis prompts/ vorhanden ist. URL: ${url.href}`);
     }
+    const text = (await res.text()).trim();
+    if (!text) {
+        throw new Error(`prompts/init-system.txt ist leer. Die Datei muss einen gültigen System-Prompt enthalten. Pfad: ${url.href}`);
+    }
+    _cachedInitPromptTemplate = text;
+    console.log(`${LOG_PREFIX} loaded init prompt from file (${text.length} chars)`);
+    return text;
 }
 
 /**

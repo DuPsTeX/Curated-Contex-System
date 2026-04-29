@@ -28,14 +28,14 @@ die Sprach-Direktive (abhängig vom Dropdown im Init-Popup) ersetzt wird. Lass i
 stehen, sonst verliert die Sprach-Auswahl ihre Wirkung im systemPrompt. Die
 doppelte Absicherung im userPrompt-Header bleibt aber bestehen.
 
-## Fallback
+## Fehlerbehandlung
 
-Wenn eine Prompt-Datei fehlt oder leer ist, greift die Extension auf einen
-in-Code Fallback zurück (siehe `src/initializer.js` → `DEFAULT_INIT_SYSTEM_PROMPT`
-bzw. `src/updater.js` → `DEFAULT_UPDATE_SYSTEM_PROMPT`). Die Extension bricht
-also nicht, auch wenn du die Files versehentlich löschst.
+Wenn eine Prompt-Datei fehlt oder leer ist, **bricht die Extension mit einer
+Fehlermeldung ab**. Es gibt keinen stillschweigenden Fallback mehr — der Fehler
+wird als Toast-Meldung angezeigt und enthält den Dateipfad, unter dem die
+Extension die Datei erwartet.
 
 ## Prompt zurücksetzen
 
-Datei löschen + SillyTavern neu laden → in-Code-Fallback greift. Oder: File-
-Inhalt durch den Default aus `src/initializer.js` / `src/updater.js` ersetzen.
+Datei-Inhalt durch den Default aus `src/initializer.js` / `src/updater.js`
+ersetzen und SillyTavern neu laden.

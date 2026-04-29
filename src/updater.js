@@ -221,11 +221,10 @@ const SCAN_WINDOW_FALLBACK = 20;   // wenn kein Cursor gesetzt ist
 const UPDATE_RESPONSE_LENGTH = 6000;
 
 /**
- * In-Code-Fallback für den Update-System-Prompt. Wird NUR verwendet, wenn
- * `prompts/update-system.txt` nicht gefetcht werden kann (Datei fehlt, Netzwerk-
- * Fehler). Source of Truth ist seit dem File-basierten Refactor die Datei im
- * Extension-Root – so wandern User-Anpassungen per `git push/pull` zwischen PCs
- * mit.
+ * Referenz-Kopie des Update-System-Prompts. Dient nur als Dokumentation und
+ * zur manuellen Wiederherstellung. Zur Laufzeit wird der Prompt AUSSCHLIESSLICH
+ * aus `prompts/update-system.txt` geladen – fehlt die Datei, bricht die
+ * Generierung mit einem Fehler ab, statt still auf diesen Default zu fallen.
  *
  * Wichtig: *kein* Markdown-Fence-Output erlaubt – wir strippen zwar in
  * `extractJson`, aber je weniger das LLM hineinschreibt, desto robuster.
@@ -339,20 +338,18 @@ let _cachedUpdatePromptTemplate = null;
  */
 export async function loadUpdateSystemPrompt() {
     if (typeof _cachedUpdatePromptTemplate === 'string') return _cachedUpdatePromptTemplate;
-    try {
-        const url = new URL('../prompts/update-system.txt', import.meta.url);
-        const res = await fetch(url.href, { cache: 'no-cache' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = (await res.text()).trim();
-        if (!text) throw new Error('empty file');
-        _cachedUpdatePromptTemplate = text;
-        console.log(`${LOG_PREFIX} loaded update prompt from file (${text.length} chars)`);
-        return text;
-    } catch (err) {
-        console.warn(`${LOG_PREFIX} could not load prompts/update-system.txt, using built-in default:`, err?.message || err);
-        _cachedUpdatePromptTemplate = DEFAULT_UPDATE_SYSTEM_PROMPT;
-        return DEFAULT_UPDATE_SYSTEM_PROMPT;
+    const url = new URL('../prompts/update-system.txt', import.meta.url);
+    const res = await fetch(url.href, { cache: 'no-cache' });
+    if (!res.ok) {
+        throw new Error(`Konnte prompts/update-system.txt nicht laden (HTTP ${res.status}). Prüfe, ob die Datei im Extension-Ordner unter dem Verzeichnis prompts/ vorhanden ist. URL: ${url.href}`);
     }
+    const text = (await res.text()).trim();
+    if (!text) {
+        throw new Error(`prompts/update-system.txt ist leer. Die Datei muss einen gültigen System-Prompt enthalten. Pfad: ${url.href}`);
+    }
+    _cachedUpdatePromptTemplate = text;
+    console.log(`${LOG_PREFIX} loaded update prompt from file (${text.length} chars)`);
+    return text;
 }
 
 /**
