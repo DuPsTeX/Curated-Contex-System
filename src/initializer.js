@@ -189,15 +189,32 @@ function trimString(s) {
  *                   aktiven Sprach-Regel ersetzt. Leer/null → Default wird verwendet.
  * @returns {{ systemPrompt: string, userPrompt: string, stats: object }}
  */
+/**
+ * Baut den Prompt fürs LLM. Gibt einen einzigen Prompt-String zurück
+ * (kein separater systemPrompt mehr). Der Archivar-Prompt wird INLINE
+ * am Anfang des Strings platziert, damit Text-Completion-Modelle ohne
+ * nativen System-Message-Support die Instruktionen verstehen – auch bei
+ * instructOverride: true.
+ *
+ * Prompt-Struktur:
+ *   ### CCS ARCHIVIST MODE ###   → die vollen Archivar-Regeln
+ *   ### SOURCE DATA ###          → Character Card + Lorebook
+ *   ### TASK ###                 → Kurz-Reminder + XML-Aufforderung
+ *
+ * @param {object} data – Rückgabe von collector.collect(...)
+ * @param {object} [opts]
+ * @param {string} [opts.lang] – Sprach-Code
+ * @param {string} [opts.systemPromptTemplate] – geladenes Template
+ * @returns {{ prompt: string, stats: object }}
+ */
 export function buildInitialPrompt(data, opts = {}) {
     const lang = (opts.lang || '').toLowerCase().trim();
     const template = trimString(opts.systemPromptTemplate) || DEFAULT_INIT_SYSTEM_PROMPT;
     const langRule = buildLangRule(lang);
-    // Platzhalter einsetzen (nur falls vorhanden – User-Override kann ihn entfernen)
-    const systemPrompt = template.includes('{{LANG_RULE}}')
+    const archivistPrompt = template.includes('{{LANG_RULE}}')
         ? template.replace('{{LANG_RULE}}', langRule)
         : template;
-    // === USER-PROMPT: die eigentlichen Quellen + Task ===
+
     const parts = [];
     let totalChars = 0;
     let truncated = false;
@@ -215,6 +232,17 @@ export function buildInitialPrompt(data, opts = {}) {
         parts.push(s);
         totalChars += s.length;
     };
+
+    // === TEIL 1: ARCHIVAR-PROMPT (ganz vorne, klar markiert) ===
+    push(`### CCS ARCHIVIST MODE – INSTRUCTIONS ###
+
+${archivistPrompt}
+
+### END OF INSTRUCTIONS ###
+
+`);
+    // === TEIL 2: SOURCE DATA (klar getrennt von den Instruktionen) ===
+    push('### SOURCE DATA ###\n\n');
 
     // === LANGUAGE DIRECTIVE (user's explicit choice wins over source language) ===
     if (lang) {
@@ -307,15 +335,13 @@ Produce the brain XML now. Core reminders (full rules in system prompt):
 XML:
 `);
 
-    const userPrompt = parts.join('');
+    const prompt = parts.join('');
 
     return {
-        systemPrompt,
-        userPrompt,
+        prompt,
         stats: {
-            systemChars: systemPrompt.length,
-            userChars: userPrompt.length,
-            inputChars: systemPrompt.length + userPrompt.length,
+            archivistChars: archivistPrompt.length,
+            totalChars: prompt.length,
             truncated,
             entriesIncluded: merged.length,
         },
@@ -431,18 +457,21 @@ export async function generateInitial(config = {}) {
     const collected = await collector.collect(collectorConfig);
 
     const systemPromptTemplate = await loadInitSystemPrompt();
-    const { systemPrompt, userPrompt, stats } = buildInitialPrompt(collected, {
+    const { prompt, stats } = buildInitialPrompt(collected, {
         lang,
         systemPromptTemplate,
     });
     console.log(`${LOG_PREFIX} generateInitial: prompt built`, stats);
 
-    // generateRaw schickt NUR unsere systemPrompt + userPrompt – keine Character Card,
-    // keine Chat-History, kein World Info. Das ist der Unterschied zu generateQuietPrompt.
+    // generateRaw mit instructOverride:true, damit ST KEINE Instruct-Wrapper
+    // (und vor allem keine story_string_prefix-Makros) an unseren Prompt hängt.
+    // Der Archivar-Prompt ist INLINE im prompt-String, klar mit ###-Markern
+    // abgetrennt – auch Text-Completion-Modelle verstehen das.
     console.log(`${LOG_PREFIX} generateInitial: calling LLM (generateRaw, isolated)...`);
     const raw = await ctx.generateRaw({
-        prompt: userPrompt,
-        systemPrompt,
+        prompt,
+        systemPrompt: '',
+        instructOverride: true,
         responseLength: 8000,
     });
 

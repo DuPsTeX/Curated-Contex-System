@@ -428,8 +428,11 @@ export function extractJson(raw) {
  * Referenzen sieht. `langOverride` kommt üblicherweise aus dem
  * `@lang`-Attribut des Brains und dient als expliziter Hinweis.
  */
-function buildUpdateUserPrompt({ brainXml, scanWindow, langOverride, capped }) {
+function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride, capped }) {
     const lines = [];
+    // Archivar-Prompt INLINE, mit Markern – kein separater systemPrompt mehr,
+    // damit Text-Completion-Modelle die Instruktionen erkennen.
+    lines.push('### CCS ARCHIVIST MODE – UPDATE INSTRUCTIONS ###', '', systemPrompt, '', '### END OF INSTRUCTIONS ###', '', '### SOURCE DATA ###', '');
     if (langOverride) {
         lines.push(`[TARGET LANGUAGE: ${langOverride}]`, '');
     }
@@ -869,6 +872,7 @@ export async function runUpdate({ ctx }) {
 
     const systemPrompt = await loadUpdateSystemPrompt();
     const userPrompt = buildUpdateUserPrompt({
+        systemPrompt,
         brainXml: migratedBrainXml,
         scanWindow,
         langOverride: lang,
@@ -882,8 +886,9 @@ export async function runUpdate({ ctx }) {
     }
 
     const raw = await ctx.generateRaw({
-        systemPrompt,
         prompt: userPrompt,
+        systemPrompt: '',
+        instructOverride: true,
         responseLength: UPDATE_RESPONSE_LENGTH,
     });
 
