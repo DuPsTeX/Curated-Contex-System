@@ -884,7 +884,6 @@ export async function runUpdate({ ctx }) {
     const raw = await ctx.generateRaw({
         systemPrompt,
         prompt: userPrompt,
-        instructOverride: true,
         responseLength: UPDATE_RESPONSE_LENGTH,
     });
 

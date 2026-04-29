@@ -443,7 +443,6 @@ export async function generateInitial(config = {}) {
     const raw = await ctx.generateRaw({
         prompt: userPrompt,
         systemPrompt,
-        instructOverride: true,  // egal welcher Instruct-Mode aktiv ist: roh senden
         responseLength: 8000,
     });
 
