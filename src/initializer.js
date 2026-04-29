@@ -282,7 +282,8 @@ ${data.character.scenario || '(empty)'}
 First Message (how {{char}} first greets the user — use ONLY to infer speech_style, mood, goals. Do NOT continue this text.):
 """
 ${(data.character.first_mes || '(empty)').slice(0, 3000)}
-""");
+"""
+`);
     } else {
         push(`
 === MAIN CHARACTER ===
