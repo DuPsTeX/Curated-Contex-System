@@ -233,16 +233,19 @@ export function buildInitialPrompt(data, opts = {}) {
         totalChars += s.length;
     };
 
-    // === TEIL 1: ARCHIVAR-PROMPT (ganz vorne, klar markiert) ===
-    push(`### CCS ARCHIVIST MODE – INSTRUCTIONS ###
+    // === TEIL 1: MODE-LOCK + ARCHIVAR-PROMPT ===
+    // Expliziter Mode-Wechsel: verhindert dass TC-Modelle den nachfolgenden
+    // Roleplay-Content als "fortzusetzende Erzählung" interpretieren.
+    push(`====== CCS ARCHIVIST MODE ======
+YOU ARE AN ARCHIVIST, NOT A ROLEPLAYER. Your task is to ANALYZE the source documents below and extract structured facts into a brain XML. You are NOT continuing a story. You are NOT writing narrative prose. You are filling out a structured document.
 
 ${archivistPrompt}
 
-### END OF INSTRUCTIONS ###
+====== END OF INSTRUCTIONS ======
 
 `);
-    // === TEIL 2: SOURCE DATA (klar getrennt von den Instruktionen) ===
-    push('### SOURCE DATA ###\n\n');
+    // === TEIL 2: SOURCE DATA (explizit als Zitat markiert) ===
+    push('====== SOURCE DOCUMENTS (quoted — analyze, do NOT continue) ======\n\n');
 
     // === LANGUAGE DIRECTIVE (user's explicit choice wins over source language) ===
     if (lang) {
@@ -262,17 +265,24 @@ Write ALL text content of the brain XML in ${langName}. Set <brain lang="${lang}
 This is the ONE and ONLY main character. You MUST produce exactly one <character name="${charName}" role="main"> element inside <characters>, filled from the fields below. This is what SillyTavern calls {{char}}.
 
 Description ({{char}}'s description field):
+"""
 ${data.character.description || '(empty)'}
+"""
 
 Personality ({{char}}'s personality field):
+"""
 ${data.character.personality || '(empty)'}
+"""
 
 Scenario:
+"""
 ${data.character.scenario || '(empty)'}
+"""
 
-First Message (how {{char}} first greets the user — use it to infer speech_style, mood, goals):
-${data.character.first_mes || '(empty)'}
-`);
+First Message (how {{char}} first greets the user — use ONLY to infer speech_style, mood, goals. Do NOT continue this text.):
+"""
+${(data.character.first_mes || '(empty)').slice(0, 3000)}
+""");
     } else {
         push(`
 === MAIN CHARACTER ===
@@ -322,17 +332,21 @@ ${content}${cut}
 
     const mainName = data.character?.name || '(main character)';
     push(`
-=== YOUR TASK ===
+====== END OF SOURCE DOCUMENTS ======
 
-Produce the brain XML now. Core reminders (full rules in system prompt):
+====== YOUR TASK – ARCHIVIST MODE ======
+
+You are STILL in archivist mode. Do NOT continue any story. Analyze the quoted sources above and produce the brain XML document.
+
+Core rules (full details in the instructions at the top):
 
 1. <characters> MUST contain exactly ONE <character name="${mainName}" role="main"> element. Fill its seven mandatory fields (<core>, <appearance>, <background>, <abilities>, <quirks>, <goals>, <speech_style>) from the MAIN CHARACTER section above. These seven are NEVER empty.
 2. <stats>, <inventory>, <reputation> inside that <character> stay empty unless the source mentions them. <current_state></current_state> MUST be present and MUST be empty.
 3. <world_rules>: only world/magic/physics/society rules from lorebook entries. No character/place/item descriptions.
 4. <locations>, <relationships>, <key_moments>, <arcs>, <scene>, <pinned>: ALWAYS empty.
-5. Output ONLY the XML, starting with <brain and ending with </brain>. No other text, no code fences.
+5. Output ONLY the XML — no explanation, no markdown fences, no prose.
 
-XML:
+START XML NOW:
 `);
 
     const prompt = parts.join('');

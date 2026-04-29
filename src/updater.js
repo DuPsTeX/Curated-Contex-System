@@ -430,9 +430,11 @@ export function extractJson(raw) {
  */
 function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride, capped }) {
     const lines = [];
-    // Archivar-Prompt INLINE, mit Markern – kein separater systemPrompt mehr,
-    // damit Text-Completion-Modelle die Instruktionen erkennen.
-    lines.push('### CCS ARCHIVIST MODE – UPDATE INSTRUCTIONS ###', '', systemPrompt, '', '### END OF INSTRUCTIONS ###', '', '### SOURCE DATA ###', '');
+    lines.push('====== CCS ARCHIVIST MODE – UPDATE ======', '',
+        'YOU ARE AN ARCHIVIST, NOT A ROLEPLAYER. Analyze the data below and output structured JSON.',
+        '', systemPrompt, '',
+        '====== END OF INSTRUCTIONS ======', '',
+        '====== SOURCE DATA (analyze, do NOT continue) ======', '');
     if (langOverride) {
         lines.push(`[TARGET LANGUAGE: ${langOverride}]`, '');
     }
@@ -444,15 +446,14 @@ function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverrid
         lines.push(`${speaker}: ${text}`);
     }
     lines.push('</chat_since_last_update>', '');
-    lines.push('<task>');
-    lines.push('Propose structured brain updates based on what happened in the chat since');
-    lines.push('the last update. Follow all rules from the system prompt. Output ONE JSON');
-    lines.push('object matching the schema.');
+    lines.push('====== END OF SOURCE DATA ======', '');
+    lines.push('<task>', 'ARCHIVIST MODE – produce JSON OUTPUT ONLY:');
+    lines.push('Propose structured brain updates based on what happened in the chat since the last update. Follow all rules from the system prompt above. Output ONE JSON object matching the schema. No prose, no markdown fences.');
     if (capped) {
         lines.push('');
         lines.push(`Note: Only the most recent ${SCAN_WINDOW_MAX} messages are shown; older context is already in the brain.`);
     }
-    lines.push('</task>');
+    lines.push('START JSON NOW:', '</task>');
     return lines.join('\n');
 }
 
