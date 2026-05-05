@@ -4,8 +4,6 @@ import * as initializer from './src/initializer.js';
 import * as interceptor from './src/interceptor.js';
 import * as updater from './src/updater.js';
 import * as popup from './src/popup.js';
-import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -573,22 +571,30 @@ async function init() {
 
     await mountSettingsPanel();
 
-    // Slash-Commands: CCS-Aktionen direkt aus der Chat-Eingabe aufrufbar
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'ccs-init',
-        callback: () => { onInitializeClicked(); return ''; },
-        helpString: 'CCS: Brain für diesen Chat initialisieren (Quellen-Auswahl + Review).',
-    }));
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'ccs-update',
-        callback: () => { onUpdateClicked(); return ''; },
-        helpString: 'CCS: Brain mit neuen Chat-Ereignissen updaten.',
-    }));
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'ccs-view',
-        callback: () => { onViewClicked(); return ''; },
-        helpString: 'CCS: Brain-XML anzeigen und bearbeiten.',
-    }));
+    // Slash-Commands: CCS-Aktionen direkt aus der Chat-Eingabe aufrufbar.
+    // SlashCommandParser/SlashCommand kommen aus dem ST-Kontext (st-context.js),
+    // nicht als direkter Import (der via transitive imports scheitert).
+    const { SlashCommandParser, SlashCommand } = ctx;
+    if (SlashCommandParser && SlashCommand) {
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-init',
+            callback: () => { onInitializeClicked(); return ''; },
+            helpString: 'CCS: Brain für diesen Chat initialisieren (Quellen-Auswahl + Review).',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-update',
+            callback: () => { onUpdateClicked(); return ''; },
+            helpString: 'CCS: Brain mit neuen Chat-Ereignissen updaten.',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-view',
+            callback: () => { onViewClicked(); return ''; },
+            helpString: 'CCS: Brain-XML anzeigen und bearbeiten.',
+        }));
+        console.log(`${LOG_PREFIX} slash commands registered: /ccs-init, /ccs-update, /ccs-view`);
+    } else {
+        console.warn(`${LOG_PREFIX} SlashCommandParser not available – slash commands not registered`);
+    }
 
     const eventSource = ctx.eventSource;
     const eventTypes = ctx.eventTypes || ctx.event_types;
