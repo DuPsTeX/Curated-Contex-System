@@ -97,6 +97,23 @@ export function filterBrainByRelevance(brainXml, messagesText) {
     const mainCharEl = root.querySelector('characters > character[role="main"]');
     if (mainCharEl) matchedChars.add(mainCharEl.getAttribute('name'));
 
+    // Log: welche Namen wurden gematcht?
+    if (matchedChars.size > 1 || matchedLocs.size > 0) {
+        const allChars = [...charNames];
+        const allLocs = [...locNames];
+        const hits = [
+            ...allChars.filter(n => matchedChars.has(n)).map(n => `  char="${n}"${n === mainCharEl?.getAttribute('name') ? ' (main)' : ''}`),
+            ...allLocs.filter(n => matchedLocs.has(n)).map(n => `  loc="${n}"`),
+        ];
+        const misses = [
+            ...allChars.filter(n => !matchedChars.has(n)).map(n => `  char="${n}"`),
+            ...allLocs.filter(n => !matchedLocs.has(n)).map(n => `  loc="${n}"`),
+        ];
+        console.log(`${LOG_PREFIX} filter: matched names:\n${hits.join('\n')}${misses.length ? '\n  --- filtered out ---\n' + misses.join('\n') : ''}`);
+    } else {
+        console.log(`${LOG_PREFIX} filter: no names matched in recent messages – injecting base context only`);
+    }
+
     // Neues Dokument bauen
     const filteredDoc = parser.parseFromString('<brain version="1"/>', 'application/xml');
     const out = filteredDoc.documentElement;
@@ -160,6 +177,17 @@ export function filterBrainByRelevance(brainXml, messagesText) {
     // Immer: pinned
     const pinned = root.querySelector(':scope > pinned');
     if (pinned && pinned.children.length > 0) out.appendChild(clone(pinned));
+
+    // Log: was wurde behalten / verworfen?
+    const sections = [];
+    for (const container of ['world_rules', 'characters', 'locations', 'relationships', 'key_moments', 'arcs', 'scene', 'pinned']) {
+        const srcCount = root.querySelectorAll(`:scope > ${container} > *`).length;
+        const outCount = out.querySelectorAll(`:scope > ${container} > *`).length;
+        if (srcCount > 0 || outCount > 0) {
+            sections.push(`  ${container}: ${outCount}/${srcCount} kept`);
+        }
+    }
+    console.log(`${LOG_PREFIX} filter: section summary:\n${sections.join('\n')}`);
 
     return new XMLSerializer().serializeToString(filteredDoc);
 }
