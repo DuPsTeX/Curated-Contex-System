@@ -467,7 +467,7 @@ export async function generateInitial(config = {}) {
         throw new Error('generateRaw not available on SillyTavern context');
     }
 
-    const { lang, ...collectorConfig } = config;
+    const { lang, skipSave, ...collectorConfig } = config;
     console.log(`${LOG_PREFIX} generateInitial: collecting sources...`, { ...collectorConfig, lang: lang || '(auto)' });
     const collected = await collector.collect(collectorConfig);
 
@@ -513,8 +513,10 @@ export async function generateInitial(config = {}) {
         throw new Error(`XML validation failed: ${validation.error}`);
     }
 
-    await storage.saveLivingDocument(xml);
-    console.log(`${LOG_PREFIX} generateInitial: saved brain (${xml.length} chars, repairs=${repairs})`);
+    if (!skipSave) {
+        await storage.saveLivingDocument(xml);
+        console.log(`${LOG_PREFIX} generateInitial: saved brain (${xml.length} chars, repairs=${repairs})`);
+    }
 
     return {
         xml,

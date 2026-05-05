@@ -169,10 +169,71 @@ async function onInitializeClicked() {
 
     try {
         // System-Prompt wird intern via `loadInitSystemPrompt()` aus `prompts/init-system.txt`
-        // geladen (mit in-Code-Fallback). Keine PC-lokalen Settings mehr nötig.
-        const result = await initializer.generateInitial(config);
+        // geladen. `skipSave: true` verhindert, dass generateInitial selbst speichert –
+        // wir zeigen stattdessen einen Review-Popup vor dem finalen Save.
+        const result = await initializer.generateInitial({ ...config, skipSave: true });
         toastr.clear(progress);
-        toastr.success(`Brain erstellt (${result.stats.xmlChars} Zeichen XML, ${result.stats.rawResponseChars} Zeichen Rohantwort).`, 'CCS');
+
+        // Review-Popup: XML prüfen und ggf. anpassen, dann speichern oder verwerfen
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ccs-edit-popup';
+        const hint = document.createElement('p');
+        hint.className = 'ccs-edit-hint';
+        hint.innerHTML = 'Brain-XML vor dem Speichern prüfen und bei Bedarf anpassen – wie beim Bearbeiten. Speichern übernimmt das Brain. Abbrechen verwirft alles.';
+        wrapper.appendChild(hint);
+
+        const ta = document.createElement('textarea');
+        ta.value = result.xml;
+        ta.className = 'ccs-view-textarea text_pole';
+        ta.style.width = '100%';
+        ta.style.minHeight = '60vh';
+        ta.style.fontFamily = 'monospace';
+        ta.style.whiteSpace = 'pre';
+        ta.spellcheck = false;
+        wrapper.appendChild(ta);
+
+        ta.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') ev.stopPropagation();
+        });
+
+        const choice = await ctx.callGenericPopup(wrapper, ctx.POPUP_TYPE.TEXT, '', {
+            okButton: 'Speichern',
+            cancelButton: 'Abbrechen',
+            wide: true,
+            large: true,
+            allowVerticalScrolling: true,
+            onClosing: async (popup) => {
+                if (popup.result !== ctx.POPUP_RESULT.AFFIRMATIVE) return true;
+
+                const edited = (ta.value || '').trim();
+                if (!edited) {
+                    toastr.warning('Brain darf nicht leer sein.', 'CCS');
+                    return false;
+                }
+
+                const { xml: repaired, repairs } = initializer.repairBrainXml(edited);
+                const v = initializer.validateBrainXml(repaired);
+                if (!v.ok) {
+                    toastr.error(`Ungültiges XML: ${v.error}`, 'CCS', { timeOut: 10000 });
+                    return false;
+                }
+
+                if (repairs > 0) {
+                    ta.value = repaired;
+                    toastr.info(`${repairs} Tag-Fehler automatisch korrigiert.`, 'CCS');
+                }
+                return true;
+            },
+        });
+
+        if (choice !== ctx.POPUP_RESULT.AFFIRMATIVE) {
+            toastr.info('Initialisierung abgebrochen – Brain verworfen.', 'CCS');
+            return;
+        }
+
+        const finalXml = (ta.value || '').trim();
+        await storage.saveLivingDocument(finalXml);
+        toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
     } catch (err) {
         toastr.clear(progress);
