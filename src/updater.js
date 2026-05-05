@@ -107,6 +107,67 @@ function ensureChild(parent, tagName, doc) {
 }
 
 /**
+ * Formatiert XML mit Einrückung (2 Leerzeichen pro Ebene).
+ * XMLSerializer.serializeToString() liefert minimiertes XML ohne Zeilenumbrüche.
+ * Diese Funktion parsed das XML und gibt es formatiert zurück.
+ * @param {string} xml
+ * @returns {string}
+ */
+export function prettyPrintXml(xml) {
+    if (typeof xml !== 'string' || !xml.trim()) return xml;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return xml;
+
+    const escapeText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escapeAttr = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function walk(node, depth) {
+        const parts = [];
+        const indent = '  '.repeat(depth);
+
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent.trim();
+            if (text) parts.push(escapeText(text));
+            return parts;
+        }
+
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const tag = node.nodeName;
+            const attrs = node.attributes && node.attributes.length
+                ? ' ' + [...node.attributes].map(a => `${a.name}="${escapeAttr(a.value)}"`).join(' ')
+                : '';
+
+            const children = [];
+            for (const child of node.childNodes) {
+                if (child.nodeType === Node.ELEMENT_NODE) {
+                    children.push(child);
+                } else if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+                    children.push(child);
+                }
+            }
+
+            if (children.length === 0) {
+                parts.push(`${indent}<${tag}${attrs}></${tag}>`);
+            } else if (children.length === 1 && children[0].nodeType === Node.TEXT_NODE) {
+                parts.push(`${indent}<${tag}${attrs}>${escapeText(children[0].textContent.trim())}</${tag}>`);
+            } else {
+                parts.push(`${indent}<${tag}${attrs}>`);
+                for (const child of children) {
+                    parts.push(...walk(child, depth + 1));
+                }
+                parts.push(`${indent}</${tag}>`);
+            }
+        }
+
+        return parts;
+    }
+
+    return walk(doc.documentElement, 0).join('\n');
+}
+
+/**
  * Idempotente Brain-Migration Phase 1 → Phase 2:
  *  - Vergibt fehlende `id`-Attribute an <character>, <location>, <relationship>,
  *    <key_moment>, <arc>, <pin> (deterministisch aus Name/Summary/Text).
@@ -199,7 +260,7 @@ export function migrateLegacyBrain(xmlString) {
         }
     }
 
-    const xml = new XMLSerializer().serializeToString(doc);
+    const xml = prettyPrintXml(new XMLSerializer().serializeToString(doc));
     if (idsAssigned > 0 || currentStatesAdded > 0) {
         console.log(
             `${LOG_PREFIX} migrateLegacyBrain: assigned ${idsAssigned} IDs, added ${currentStatesAdded} <current_state> nodes`,
@@ -1252,7 +1313,7 @@ export async function applyProposals(approved, migratedBrainXml, cursorIndex, se
 
     // Cursor setzen + Post-Validate
     doc.documentElement.setAttribute('last_analyzed_msg_index', String(cursorIndex));
-    const newXml = new XMLSerializer().serializeToString(doc);
+    const newXml = prettyPrintXml(new XMLSerializer().serializeToString(doc));
 
     const v = validateBrainXml(newXml);
     if (!v.ok) {
