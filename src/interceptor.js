@@ -83,7 +83,7 @@ export function filterBrainByRelevance(brainXml, messagesText) {
         if (n) locNames.add(n);
     }
 
-    // Matchen (case-insensitive substring)
+    // Matchen (case-insensitive substring) – diese Sets enthalten NUR Text-Treffer
     const matchedChars = new Set();
     const matchedLocs = new Set();
     for (const n of charNames) {
@@ -93,20 +93,22 @@ export function filterBrainByRelevance(brainXml, messagesText) {
         if (text.includes(n.toLowerCase())) matchedLocs.add(n);
     }
 
-    // main character immer dazurechnen
+    // main character immer dazurechnen (für Output, nicht für Relationship/Key-Moment-Filter!)
     const mainCharEl = root.querySelector('characters > character[role="main"]');
-    if (mainCharEl) matchedChars.add(mainCharEl.getAttribute('name'));
+    const activeChars = new Set([...matchedChars]);         // NUR Text-Treffer
+    const allRelevantChars = new Set([...activeChars]);     // Text-Treffer + main
+    if (mainCharEl) allRelevantChars.add(mainCharEl.getAttribute('name'));
 
     // Log: welche Namen wurden gematcht?
-    if (matchedChars.size > 1 || matchedLocs.size > 0) {
+    if (allRelevantChars.size > 1 || matchedLocs.size > 0) {
         const allChars = [...charNames];
         const allLocs = [...locNames];
         const hits = [
-            ...allChars.filter(n => matchedChars.has(n)).map(n => `  char="${n}"${n === mainCharEl?.getAttribute('name') ? ' (main)' : ''}`),
+            ...allChars.filter(n => allRelevantChars.has(n)).map(n => `  char="${n}"${n === mainCharEl?.getAttribute('name') && !activeChars.has(n) ? ' (main, auto)' : ''}`),
             ...allLocs.filter(n => matchedLocs.has(n)).map(n => `  loc="${n}"`),
         ];
         const misses = [
-            ...allChars.filter(n => !matchedChars.has(n)).map(n => `  char="${n}"`),
+            ...allChars.filter(n => !allRelevantChars.has(n)).map(n => `  char="${n}"`),
             ...allLocs.filter(n => !matchedLocs.has(n)).map(n => `  loc="${n}"`),
         ];
         console.log(`${LOG_PREFIX} filter: matched names:\n${hits.join('\n')}${misses.length ? '\n  --- filtered out ---\n' + misses.join('\n') : ''}`);
@@ -126,7 +128,7 @@ export function filterBrainByRelevance(brainXml, messagesText) {
     // characters: main + gematchte NPCs
     const charsContainer = filteredDoc.createElement('characters');
     for (const ch of root.querySelectorAll('characters > character')) {
-        if (matchedChars.has(ch.getAttribute('name'))) {
+        if (allRelevantChars.has(ch.getAttribute('name'))) {
             charsContainer.appendChild(clone(ch));
         }
     }
@@ -143,21 +145,23 @@ export function filterBrainByRelevance(brainXml, messagesText) {
         out.appendChild(locsContainer);
     }
 
-    // relationships: from ODER to in matchedChars
+    // relationships: from UND to müssen relevant sein (nicht nur einer)
     const relsContainer = filteredDoc.createElement('relationships');
     for (const rel of root.querySelectorAll('relationships > relationship')) {
-        if (matchedChars.has(rel.getAttribute('from')) || matchedChars.has(rel.getAttribute('to'))) {
+        if (allRelevantChars.has(rel.getAttribute('from')) && allRelevantChars.has(rel.getAttribute('to'))) {
             relsContainer.appendChild(clone(rel));
         }
     }
     if (relsContainer.children.length > 0) out.appendChild(relsContainer);
 
-    // key_moments: <who>/<person> in matchedChars
+    // key_moments: mindestens eine Person muss AKTIV im Text gematcht sein
+    // (der auto-hinzugefügte Main-Char zählt NICHT – verhindert dass alle alten
+    // Key-Moments des Main-Chars durchrutschen)
     const kmContainer = filteredDoc.createElement('key_moments');
     for (const km of root.querySelectorAll('key_moments > key_moment')) {
         let keep = false;
         for (const p of km.querySelectorAll('who > person')) {
-            if (matchedChars.has(p.textContent?.trim())) { keep = true; break; }
+            if (activeChars.has(p.textContent?.trim())) { keep = true; break; }
         }
         if (keep) kmContainer.appendChild(clone(km));
     }
