@@ -559,6 +559,35 @@ function onChatChanged() {
     updateBrainStateUI();
 }
 
+function addWandButtons() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu) {
+        console.warn(`${LOG_PREFIX} extensionsMenu not found – wand buttons skipped`);
+        return;
+    }
+
+    const makeBtn = (id, icon, label, handler) => {
+        const row = document.createElement('div');
+        row.id = id;
+        row.className = 'list-group-item flex-container flexGap5';
+        row.style.cursor = 'pointer';
+        const ic = document.createElement('div');
+        ic.className = `fa-solid ${icon} extensionsMenuExtensionButton`;
+        const span = document.createElement('span');
+        span.textContent = label;
+        row.appendChild(ic);
+        row.appendChild(span);
+        row.addEventListener('click', handler);
+        return row;
+    };
+
+    menu.appendChild(makeBtn('ccs-wand-init', 'fa-brain', 'CCS: Brain initialisieren', onInitializeClicked));
+    menu.appendChild(makeBtn('ccs-wand-update', 'fa-arrows-rotate', 'CCS: Brain updaten', onUpdateClicked));
+    menu.appendChild(makeBtn('ccs-wand-view', 'fa-magnifying-glass', 'CCS: Brain anzeigen', onViewClicked));
+
+    console.log(`${LOG_PREFIX} wand buttons added to extensions menu`);
+}
+
 async function init() {
     console.log(`${LOG_PREFIX} extension initializing...`);
     const ctx = getContext();
@@ -595,6 +624,9 @@ async function init() {
     } else {
         console.warn(`${LOG_PREFIX} SlashCommandParser not available – slash commands not registered`);
     }
+
+    // Wand-Menü-Buttons: sichtbare Knöpfe im Extensions-Dropdown (Zauberstab-Icon)
+    addWandButtons();
 
     const eventSource = ctx.eventSource;
     const eventTypes = ctx.eventTypes || ctx.event_types;
