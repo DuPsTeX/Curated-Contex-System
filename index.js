@@ -37,6 +37,7 @@ const EXTENSION_FOLDER = (() => {
 const DEFAULT_SETTINGS = {
     enabled: true,
     historyEnabled: true,
+    ccsTokenBudget: 0,
 };
 
 function getContext() {
@@ -536,6 +537,16 @@ function bindUI() {
         s.historyEnabled = $(this).prop('checked');
         saveSettings();
         console.log(`${LOG_PREFIX} historyEnabled set to ${s.historyEnabled}`);
+    });
+
+    const $tokenBudget = $('#ccs-token-budget');
+    $tokenBudget.val(settings.ccsTokenBudget ?? 0);
+    $tokenBudget.on('change', function () {
+        const s = getSettings();
+        const v = parseInt($(this).val(), 10);
+        s.ccsTokenBudget = Number.isFinite(v) && v >= 0 ? v : 0;
+        saveSettings();
+        console.log(`${LOG_PREFIX} ccsTokenBudget set to ${s.ccsTokenBudget}`);
     });
 
     $('#ccs-init-btn').on('click', onInitializeClicked);

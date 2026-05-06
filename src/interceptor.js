@@ -225,6 +225,69 @@ export function filterBrainByRelevance(brainXml, messagesText, { includeHistory 
 }
 
 /**
+ * Trimmt das gefilterte Brain-XML auf ein Token-Budget.
+ * Entfernt zuerst älteste History-Einträge, dann niedrig-priore Key-Moments.
+ * Schätzung: ~4 Zeichen = 1 Token.
+ *
+ * @param {string} filteredXml – bereits relevance-gefiltertes XML
+ * @param {number} tokenBudget – max Tokens (0 = unbegrenzt)
+ * @returns {string}
+ */
+export function trimToBudget(filteredXml, tokenBudget) {
+    if (!tokenBudget || tokenBudget <= 0) return filteredXml;
+    if (!filteredXml || !filteredXml.trim()) return filteredXml;
+
+    const charBudget = tokenBudget * 4;
+    if (filteredXml.length <= charBudget) return filteredXml;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(filteredXml, 'application/xml');
+    if (doc.querySelector('parsererror')) return filteredXml;
+
+    const root = doc.documentElement;
+    if (!root || root.nodeName !== 'brain') return filteredXml;
+
+    let removed = 0;
+
+    // 1. Älteste History-Einträge entfernen (first = oldest, last = newest)
+    const historyEntries = root.querySelectorAll(':scope > history > entry');
+    if (historyEntries.length > 0) {
+        const keep = Math.max(1, historyEntries.length - 1);
+        for (let i = 0; i < historyEntries.length; i++) {
+            const currentLen = new XMLSerializer().serializeToString(doc).length;
+            if (currentLen <= charBudget) break;
+            if (i < historyEntries.length - keep) {
+                historyEntries[i].remove();
+                removed++;
+            }
+        }
+    }
+
+    // 2. Niedrig-priore Key-Moments entfernen (low → medium → …)
+    if (new XMLSerializer().serializeToString(doc).length > charBudget) {
+        const kmPriority = { low: 0, medium: 1, high: 2, critical: 3 };
+        const kmEntries = [...root.querySelectorAll(':scope > key_moments > key_moment')];
+        kmEntries.sort((a, b) => {
+            const pa = kmPriority[(a.getAttribute('importance') || 'low').toLowerCase()] || 0;
+            const pb = kmPriority[(b.getAttribute('importance') || 'low').toLowerCase()] || 0;
+            return pa - pb;
+        });
+        for (const km of kmEntries) {
+            const currentLen = new XMLSerializer().serializeToString(doc).length;
+            if (currentLen <= charBudget) break;
+            km.remove();
+            removed++;
+        }
+    }
+
+    if (removed > 0) {
+        console.log(`${LOG_PREFIX} trimToBudget: removed ${removed} entries (budget=${tokenBudget} tokens, ~${charBudget} chars)`);
+    }
+
+    return new XMLSerializer().serializeToString(doc);
+}
+
+/**
  * Leert den Injection-Slot. Wichtig bei Chat-Wechsel / Brain gelöscht / Extension aus,
  * damit keine Leiche vom vorigen Zustand mitgeschleppt wird.
  * @param {object} ctx – SillyTavern-Context
@@ -295,7 +358,8 @@ export async function runAlwaysCore({ ctx, settings, type }) {
         } catch { /* nop */ }
 
         const originalLen = brain.length;
-        const filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false });
+        let filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false });
+        filtered = trimToBudget(filtered, settings.ccsTokenBudget ?? 0);
         const filteredLen = filtered.length;
 
         const text = buildAlwaysCoreText(filtered);

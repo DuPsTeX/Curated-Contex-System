@@ -19,6 +19,13 @@
                 <span>History (Chronik-Kompression)</span>
             </label>
 
+            <div class="ccs-token-row">
+                <label for="ccs-token-budget"><strong>CCS Token-Budget:</strong></label>
+                <input id="ccs-token-budget" type="number" min="0" step="100" value="0" class="text_pole" style="width:100px" />
+                <span>Tokens</span>
+                <small>0 = unbegrenzt. Begrenzt die CCS-Injektion, um mehr Platz für Chat-History zu lassen. ~4 Zeichen = 1 Token.</small>
+            </div>
+
             <div class="ccs-status-line">
                 Status: <span id="ccs-status" class="ccs-status--inactive">...</span>
             </div>
