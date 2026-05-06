@@ -38,6 +38,7 @@ const CATEGORY_META = {
     relationship_updates:   { icon: 'fa-heart-pulse', title: 'Beziehungs-Updates' },
     arc_updates:            { icon: 'fa-book',        title: 'Arc-Updates' },
     scene_update:           { icon: 'fa-film',        title: 'Szenen-Update' },
+    new_history_entries:    { icon: 'fa-clock-rotate-left', title: 'Chronik-Einträge' },
 };
 
 // Enum-Werte gespiegelt aus updater.validateProposals (bewusst Duplikat: die Popup-
@@ -522,6 +523,53 @@ function cardNewPin(proposal, existingIds) {
     };
 }
 
+function cardNewHistoryEntry(proposal, existingIds) {
+    const titlePreview = (proposal.summary || '').slice(0, 60) || '(leer)';
+    const card = makeCard('new_history_entries', titlePreview, {
+        showId: true, initialId: proposal.id,
+    });
+    const fSummary = labeledInput('Zusammenfassung*', textareaField(proposal.summary, { dataField: 'summary' }), { required: true });
+    const fScene = labeledInput('Szene / Kapitel', textInput(proposal.scene, { dataField: 'scene' }));
+    const fTags = labeledInput('Tags', commaInput(proposal.tags, { dataField: 'tags' }));
+    const fKeyOutcome = labeledInput('Ergebnis', textareaField(proposal.key_outcome, { dataField: 'key_outcome' }));
+    const fInvolved = labeledInput('Beteiligte', commaInput(proposal.involved, { dataField: 'involved' }));
+
+    card.body.append(fSummary, fScene, fTags, fKeyOutcome, fInvolved);
+
+    const reflectId = () => {
+        const seed = inputOf(fSummary).value.trim() || 'history';
+        const live = new Set(existingIds); live.delete(proposal.id);
+        const newId = generateId('h', seed, live);
+        card.root.dataset.liveId = newId;
+        card.idRow.textContent = `ID: ${newId}`;
+        const t = inputOf(fSummary).value.trim();
+        card.header.querySelector('.ccs-card-title').textContent = (t.slice(0, 60) || '(leer)') + (t.length > 60 ? '…' : '');
+    };
+    inputOf(fSummary).addEventListener('input', reflectId);
+    reflectId();
+
+    return {
+        ...card,
+        getValues: () => ({
+            category: 'new_history_entries',
+            id: card.root.dataset.liveId || proposal.id,
+            summary: inputOf(fSummary).value.trim(),
+            scene: inputOf(fScene).value.trim(),
+            tags: parseCommaList(inputOf(fTags).value),
+            key_outcome: inputOf(fKeyOutcome).value.trim(),
+            involved: parseCommaList(inputOf(fInvolved).value),
+        }),
+        validate: (eff) => {
+            const summary = inputOf(fSummary).value.trim();
+            if (!summary) return { msg: 'Zusammenfassung ist Pflicht', el: inputOf(fSummary) };
+            const involved = parseCommaList(inputOf(fInvolved).value);
+            const unknown = involved.filter(n => !eff.charNames.has(n));
+            if (unknown.length) return { msg: `Unbekannte Beteiligte: ${unknown.join(', ')}`, el: inputOf(fInvolved) };
+            return null;
+        },
+    };
+}
+
 function cardCharacterFieldUpdate(proposal) {
     const card = makeCard('character_field_updates', `${proposal.character || '?'}: ${proposal.field || '?'}`);
     const fChar = labeledInput('Charakter*', textInput(proposal.character, { dataField: 'character' }), { required: true });
@@ -714,6 +762,7 @@ const CARD_BUILDERS = {
     relationship_updates: cardRelationshipUpdate,
     arc_updates: cardArcUpdate,
     scene_update: cardSceneUpdate,
+    new_history_entries: cardNewHistoryEntry,
 };
 
 // =============================================================================

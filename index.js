@@ -36,6 +36,7 @@ const EXTENSION_FOLDER = (() => {
 
 const DEFAULT_SETTINGS = {
     enabled: true,
+    historyEnabled: true,
 };
 
 function getContext() {
@@ -517,6 +518,26 @@ function bindUI() {
         }
         console.log(`${LOG_PREFIX} enabled set to ${s.enabled}`);
     });
+    // Checkbox für History – dynamisch einfügen falls nicht via settings.html gerendert
+    if (!$('#ccs-history-enabled').length) {
+        const $historyRow = $(`
+            <label class="checkbox_label" for="ccs-history-enabled" title="Komprimiert abgeschlossene Szenen in eine verdichtete Chronologie. Reduziert Token-Verbrauch bei langen Chats.">
+                <input id="ccs-history-enabled" type="checkbox" />
+                <span>History (Chronik-Kompression)</span>
+            </label>
+        `);
+        $('#ccs-enabled').closest('label').after($historyRow);
+    }
+
+    const $historyEnabled = $('#ccs-history-enabled');
+    $historyEnabled.prop('checked', settings.historyEnabled === true);
+    $historyEnabled.on('change', function () {
+        const s = getSettings();
+        s.historyEnabled = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} historyEnabled set to ${s.historyEnabled}`);
+    });
+
     $('#ccs-init-btn').on('click', onInitializeClicked);
     $('#ccs-view-btn').on('click', onViewClicked);
     $('#ccs-update-btn').on('click', onUpdateClicked);

@@ -19,9 +19,15 @@ explanation outside the JSON.
   "arc_updates":             [ { id, change_type, new_value, reason? } ],
   "scene_update":            { location, present[], time?, mood?, active_tension? } | null,
   "new_world_rules":         [ "string", … ],
-  "new_pins":                [ "string", … ]
+  "new_pins":                [ "string", … ],
+  "new_history_entries":     [ { summary, scene?, tags?[], key_outcome?, involved?[] } ]
 }
 Any array may be []. scene_update may be null. reasoning MUST be present.
+- new_history_entries.summary is a 1-3 sentence summary of a concluded scene or narrative block.
+- new_history_entries.scene is an optional scene/chapter name.
+- new_history_entries.tags are 2-5 keywords for filtering.
+- new_history_entries.key_outcome is an optional 1-sentence result of the block.
+- new_history_entries.involved are optional character names who participated.
 
 # Enums
 - importance: low | medium | high | critical
@@ -46,6 +52,11 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
 6. Scene update: only if location/present/mood actually changed in the window.
 7. Language: match the brain root's @lang attribute. String contents in the
    language of the brain; JSON keys and enum values stay English.
+8. History entries: propose a new_history_entry when a narrative block (scene,
+   chapter, or significant sequence) concluded in the scan window. Summarize
+   what happened, not every message. Only propose if at least 5 messages of
+   substance passed. A history entry is a compressed chronicle, NOT a key_moment
+   (which captures a single pivotal beat).
 
 # Few-Shot example
 <brain_current>
@@ -84,5 +95,8 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
   "new_arcs": [],
   "arc_updates": [],
   "new_world_rules": [],
-  "new_pins": []
+  "new_pins": [],
+  "new_history_entries": [
+    { "summary": "Kael taucht unerwartet in der Taverne auf und gibt Aria das Medaillon zurück – eine stumme Geste der Wiedergutmachung.", "scene": "Rückkehr in der Taverne", "tags": ["Kael", "Aria", "Medaillon", "Wiedergutmachung"], "key_outcome": "Aria beginnt, Kael wieder zu vertrauen.", "involved": ["Aria", "Kael"] }
+  ]
 }

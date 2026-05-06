@@ -311,9 +311,15 @@ explanation outside the JSON.
   "arc_updates":             [ { id, change_type, new_value, reason? } ],
   "scene_update":            { location, present[], time?, mood?, active_tension? } | null,
   "new_world_rules":         [ "string", … ],
-  "new_pins":                [ "string", … ]
+  "new_pins":                [ "string", … ],
+  "new_history_entries":     [ { summary, scene?, tags?[], key_outcome?, involved?[] } ]
 }
 Any array may be []. scene_update may be null. reasoning MUST be present.
+- new_history_entries.summary is a 1-3 sentence summary of a concluded scene or narrative block.
+- new_history_entries.scene is an optional scene/chapter name.
+- new_history_entries.tags are 2-5 keywords for filtering.
+- new_history_entries.key_outcome is an optional 1-sentence result.
+- new_history_entries.involved are optional character names.
 
 # Enums
 - importance: low | medium | high | critical
@@ -338,6 +344,11 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
 6. Scene update: only if location/present/mood actually changed in the window.
 7. Language: match the brain root's @lang attribute. String contents in the
    language of the brain; JSON keys and enum values stay English.
+8. History entries: propose a new_history_entry when a narrative block (scene,
+   chapter, or significant sequence) concluded in the scan window. Summarize
+   what happened, not every message. Only propose if enough substance occurred.
+   A history entry is a compressed chronicle, NOT a key_moment (which captures
+   a single pivotal beat).
 
 # Few-Shot example
 <brain_current>
@@ -376,7 +387,10 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
   "new_arcs": [],
   "arc_updates": [],
   "new_world_rules": [],
-  "new_pins": []
+  "new_pins": [],
+  "new_history_entries": [
+    { "summary": "Kael taucht unerwartet in der Taverne auf und gibt Aria das Medaillon zurück.", "scene": "Rückkehr", "tags": ["Kael", "Aria", "Medaillon"], "key_outcome": "Aria beginnt Kael wieder zu vertrauen.", "involved": ["Aria", "Kael"] }
+  ]
 }
 `;
 
@@ -612,6 +626,7 @@ export function validateProposals(json, migratedBrainXml) {
             : null,
         new_world_rules: Array.isArray(json.new_world_rules) ? json.new_world_rules : [],
         new_pins: Array.isArray(json.new_pins) ? json.new_pins : [],
+        new_history_entries: Array.isArray(json.new_history_entries) ? json.new_history_entries : [],
     };
 
     const doc = new DOMParser().parseFromString(migratedBrainXml, 'application/xml');
@@ -771,6 +786,27 @@ export function validateProposals(json, migratedBrainXml) {
         if (!text) { drop('new_pins', item, 'empty string'); continue; }
         const id = generateId('pin', text, existingIds);
         proposals.push({ category: 'new_pins', id, text });
+    }
+
+    // --- new_history_entries (ref: knownCharNames for involved[]) -------------
+    for (const item of src.new_history_entries) {
+        if (!item || typeof item !== 'object') { drop('new_history_entries', item, 'not an object'); continue; }
+        const summary = trimString(item.summary);
+        if (!summary) { drop('new_history_entries', item, 'missing summary'); continue; }
+        const involved = cleanStringArray(item.involved);
+        if (involved.length > 0) {
+            const unknown = involved.filter(n => !knownCharNames.has(n));
+            if (unknown.length > 0) { drop('new_history_entries', item, `unknown involved: ${unknown.join(', ')}`); continue; }
+        }
+        const id = generateId('h', summary.slice(0, SLUG_MAX), existingIds);
+        proposals.push({
+            category: 'new_history_entries',
+            id, summary,
+            scene: trimString(item.scene),
+            tags: cleanStringArray(item.tags),
+            key_outcome: trimString(item.key_outcome),
+            involved,
+        });
     }
 
     // --- character_field_updates (ref: knownCharNames) ------------------------
@@ -1204,6 +1240,18 @@ function applyNewPin(doc, p) {
     container.appendChild(pin);
 }
 
+function applyNewHistoryEntry(doc, p) {
+    const container = ensureContainer(doc, 'history');
+    const el = doc.createElement('entry');
+    el.setAttribute('id', p.id);
+    if (p.scene) el.setAttribute('scene', p.scene);
+    appendTextChild(el, 'summary', p.summary, doc);
+    if (p.tags && p.tags.length) appendTextChild(el, 'tags', p.tags.join(', '), doc);
+    if (p.key_outcome) appendTextChild(el, 'key_outcome', p.key_outcome, doc);
+    if (p.involved && p.involved.length) appendTextChild(el, 'involved', p.involved.join(', '), doc);
+    container.appendChild(el);
+}
+
 /**
  * Die Plural-Keys stimmen 1:1 mit dem JSON-Schema-Top-Level (Spec §5.1) und mit
  * dem `proposal.category`-Tag überein, den `validateProposals` an jedes Item
@@ -1221,6 +1269,7 @@ export const APPLY_FNS = {
     scene_update: applySceneUpdate,
     new_world_rules: applyNewWorldRule,
     new_pins: applyNewPin,
+    new_history_entries: applyNewHistoryEntry,
 };
 
 // =============================================================================
@@ -1246,6 +1295,7 @@ const CATEGORY_PRIORITY = {
     relationship_updates: 8,
     arc_updates: 9,
     scene_update: 10,
+    new_history_entries: 11,
 };
 
 function sortProposalsByCategory(approved) {

@@ -57,9 +57,11 @@ export function buildAlwaysCoreText(brainXml) {
  *
  * @param {string} brainXml
  * @param {string} messagesText – zusammengefügte letzte Nachrichten (lowercase)
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeHistory=true] – ob <history> immer mit ausgegeben wird
  * @returns {string} gefiltertes XML
  */
-export function filterBrainByRelevance(brainXml, messagesText) {
+export function filterBrainByRelevance(brainXml, messagesText, { includeHistory = true } = {}) {
     if (!brainXml || !brainXml.trim()) return brainXml;
 
     const parser = new DOMParser();
@@ -202,9 +204,15 @@ export function filterBrainByRelevance(brainXml, messagesText) {
     const pinned = root.querySelector(':scope > pinned');
     if (pinned && pinned.children.length > 0) out.appendChild(clone(pinned));
 
+    // Immer: history (wenn enabled + vorhanden – komprimierte Chronik ist Kern-Feature)
+    if (includeHistory) {
+        const history = root.querySelector(':scope > history');
+        if (history && history.children.length > 0) out.appendChild(clone(history));
+    }
+
     // Log: was wurde behalten / verworfen?
     const sections = [];
-    for (const container of ['world_rules', 'characters', 'locations', 'relationships', 'key_moments', 'arcs', 'scene', 'pinned']) {
+    for (const container of ['world_rules', 'characters', 'locations', 'relationships', 'key_moments', 'arcs', 'scene', 'pinned', 'history']) {
         const srcCount = root.querySelectorAll(`:scope > ${container} > *`).length;
         const outCount = out.querySelectorAll(`:scope > ${container} > *`).length;
         if (srcCount > 0 || outCount > 0) {
@@ -287,7 +295,7 @@ export async function runAlwaysCore({ ctx, settings, type }) {
         } catch { /* nop */ }
 
         const originalLen = brain.length;
-        const filtered = filterBrainByRelevance(brain, recentText);
+        const filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false });
         const filteredLen = filtered.length;
 
         const text = buildAlwaysCoreText(filtered);
