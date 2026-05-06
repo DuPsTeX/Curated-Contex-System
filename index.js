@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     historyEnabled: true,
     ccsTokenBudget: 0,
+    maxChatMessages: 0,
 };
 
 function getContext() {
@@ -549,6 +550,16 @@ function bindUI() {
         console.log(`${LOG_PREFIX} ccsTokenBudget set to ${s.ccsTokenBudget}`);
     });
 
+    const $maxChat = $('#ccs-max-chat-messages');
+    $maxChat.val(settings.maxChatMessages ?? 0);
+    $maxChat.on('change', function () {
+        const s = getSettings();
+        const v = parseInt($(this).val(), 10);
+        s.maxChatMessages = Number.isFinite(v) && v >= 0 ? v : 0;
+        saveSettings();
+        console.log(`${LOG_PREFIX} maxChatMessages set to ${s.maxChatMessages}`);
+    });
+
     $('#ccs-init-btn').on('click', onInitializeClicked);
     $('#ccs-view-btn').on('click', onViewClicked);
     $('#ccs-update-btn').on('click', onUpdateClicked);
@@ -682,13 +693,28 @@ async function init() {
 globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
-    // Äußerster Safety-Net: selbst wenn getContext()/getSettings() oder runAlwaysCore
-    // unerwartet werfen (runAlwaysCore hat selbst schon ein inneres try/catch –
-    // das hier ist reiner Belt-and-Suspenders), darf ST NIEMALS blockiert werden.
-    // Interceptor-Return muss erfolgreich resolven, auch im Fehlerfall.
     try {
         const ctx = getContext();
         const settings = getSettings();
+
+        // Chat-History auf max N Nachrichten kappen (ältere → CCS-History)
+        const max = settings.maxChatMessages;
+        if (max > 0 && Array.isArray(chat)) {
+            const narrative = [];
+            for (let i = chat.length - 1; i >= 0; i--) {
+                const m = chat[i];
+                if (m && m.is_system !== true && !m.injected) narrative.push(i);
+            }
+            if (narrative.length > max) {
+                const before = chat.length;
+                const toRemove = new Set(narrative.slice(max));
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    if (toRemove.has(i)) chat.splice(i, 1);
+                }
+                console.log(`${LOG_PREFIX} interceptor: trimmed chat from ${before} to ${chat.length} messages (max=${max})`);
+            }
+        }
+
         const result = await interceptor.runAlwaysCore({ ctx, settings, type });
         console.log(`${LOG_PREFIX} interceptor ${result.action}${result.reason ? ` (${result.reason})` : ''}${typeof result.chars === 'number' ? ` chars=${result.chars}` : ''}`, {
             type,

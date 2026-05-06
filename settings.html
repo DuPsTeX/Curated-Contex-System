@@ -26,6 +26,13 @@
                 <small>0 = unbegrenzt. Begrenzt die CCS-Injektion, um mehr Platz für Chat-History zu lassen. ~4 Zeichen = 1 Token.</small>
             </div>
 
+            <div class="ccs-token-row">
+                <label for="ccs-max-chat-messages"><strong>Max Chat-Nachrichten:</strong></label>
+                <input id="ccs-max-chat-messages" type="number" min="0" step="5" value="0" class="text_pole" style="width:100px" />
+                <span>Nachrichten</span>
+                <small>0 = unbegrenzt. Kappt die Chat-History auf die letzten N Nachrichten. Ältere ersetzt CCS-History.</small>
+            </div>
+
             <div class="ccs-status-line">
                 Status: <span id="ccs-status" class="ccs-status--inactive">...</span>
             </div>
