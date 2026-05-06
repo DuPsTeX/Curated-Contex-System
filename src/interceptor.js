@@ -154,16 +154,36 @@ export function filterBrainByRelevance(brainXml, messagesText) {
     }
     if (relsContainer.children.length > 0) out.appendChild(relsContainer);
 
-    // key_moments: mindestens eine Person muss AKTIV im Text gematcht sein
-    // (der auto-hinzugefügte Main-Char zählt NICHT – verhindert dass alle alten
-    // Key-Moments des Main-Chars durchrutschen)
+    // key_moments: mindestens eine Person muss AKTIV im Text gematcht sein,
+    // UND zusätzlich Orts-/Importance-Filter: nur behalten wenn
+    //   (a) <where> den aktuellen Szenen-Ort ODER einen gematchten Ort enthält, ODER
+    //   (b) importance = critical oder high
+    // Verhindert dass alte Medium/Low-Moments ohne Ortsbezug durchrutschen.
+    const sceneLocText = root.querySelector(':scope > scene > location')?.textContent?.trim().toLowerCase() || '';
     const kmContainer = filteredDoc.createElement('key_moments');
     for (const km of root.querySelectorAll('key_moments > key_moment')) {
-        let keep = false;
+        // Person-Check wie gehabt
+        let personMatch = false;
         for (const p of km.querySelectorAll('who > person')) {
-            if (activeChars.has(p.textContent?.trim())) { keep = true; break; }
+            if (activeChars.has(p.textContent?.trim())) { personMatch = true; break; }
         }
-        if (keep) kmContainer.appendChild(clone(km));
+        if (!personMatch) continue;
+
+        const importance = (km.getAttribute('importance') || '').toLowerCase();
+        const whereText = km.querySelector(':scope > where')?.textContent?.trim().toLowerCase() || '';
+
+        // Orts-Match: <where> enthält Szenen-Ort ODER einen aktiv gematchten Ort
+        let locMatch = false;
+        if (sceneLocText && whereText.includes(sceneLocText)) locMatch = true;
+        if (!locMatch) {
+            for (const ln of matchedLocs) {
+                if (whereText.includes(ln.toLowerCase())) { locMatch = true; break; }
+            }
+        }
+
+        if (locMatch || importance === 'critical' || importance === 'high') {
+            kmContainer.appendChild(clone(km));
+        }
     }
     if (kmContainer.children.length > 0) out.appendChild(kmContainer);
 
