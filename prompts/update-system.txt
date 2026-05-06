@@ -54,8 +54,8 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
    language of the brain; JSON keys and enum values stay English.
 8. History entries: propose a new_history_entry when a narrative block (scene,
    chapter, or significant sequence) concluded in the scan window. Summarize
-   what happened, not every message. Only propose if at least 5 messages of
-   substance passed. A history entry is a compressed chronicle, NOT a key_moment
+   what happened, not every message. Propose even for smaller blocks (3+ messages
+   of substance). A history entry is a compressed chronicle, NOT a key_moment
    (which captures a single pivotal beat).
 
 # Few-Shot example

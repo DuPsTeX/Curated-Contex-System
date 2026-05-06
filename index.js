@@ -366,7 +366,7 @@ async function onUpdateClicked() {
     try {
         // System-Prompt wird intern via `loadUpdateSystemPrompt()` aus
         // `prompts/update-system.txt` geladen (mit in-Code-Fallback).
-        result = await updater.runUpdate({ ctx });
+        result = await updater.runUpdate({ ctx, settings });
     } catch (err) {
         toastr.clear(progress);
         const msg = err?.message || String(err);

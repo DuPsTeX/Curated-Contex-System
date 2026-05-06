@@ -346,9 +346,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
    language of the brain; JSON keys and enum values stay English.
 8. History entries: propose a new_history_entry when a narrative block (scene,
    chapter, or significant sequence) concluded in the scan window. Summarize
-   what happened, not every message. Only propose if enough substance occurred.
-   A history entry is a compressed chronicle, NOT a key_moment (which captures
-   a single pivotal beat).
+   what happened, not every message. Propose even for smaller blocks (3+ messages
+   of substance). A history entry is a compressed chronicle, NOT a key_moment
+   (which captures a single pivotal beat).
 
 # Few-Shot example
 <brain_current>
@@ -921,12 +921,13 @@ export function validateProposals(json, migratedBrainXml) {
  *
  * @param {object} opts
  * @param {object} opts.ctx – SillyTavern getContext()
+ * @param {object} [opts.settings] – CCS-Settings (für historyEnabled etc.)
  *
  * Der System-Prompt wird aus `prompts/update-system.txt` gefetcht (oder aus dem
  * in-Code-Fallback, falls die Datei fehlt). Es gibt KEIN `settings.updateSystemPrompt`
  * mehr – Anpassungen landen direkt in der Datei und wandern per git push/pull.
  */
-export async function runUpdate({ ctx }) {
+export async function runUpdate({ ctx, settings }) {
     if (!ctx) throw new Error('runUpdate: ctx required');
 
     const originalXml = await storage.getLivingDocument();
@@ -1003,6 +1004,16 @@ export async function runUpdate({ ctx }) {
     }
 
     const result = validateProposals(json, migratedBrainXml);
+
+    // History deaktiviert → alle new_history_entries rausfiltern
+    if (settings && settings.historyEnabled === false) {
+        const before = result.proposals.length;
+        result.proposals = result.proposals.filter(p => p.category !== 'new_history_entries');
+        const removed = before - result.proposals.length;
+        if (removed > 0) {
+            console.log(`${LOG_PREFIX} runUpdate: history disabled, removed ${removed} history proposals`);
+        }
+    }
 
     console.log(`${LOG_PREFIX} runUpdate: ${result.proposals.length} proposals (dropped=${result.dropped.length}, shape_ok=${result.shape_ok})`);
 
