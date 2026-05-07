@@ -305,7 +305,7 @@ explanation outside the JSON.
   "new_locations":           [ { name, description, atmosphere?, events_here?[] } ],
   "new_characters":          [ { name, core, appearance?, quirks?, background?, aliases?[] } ],
   "character_field_updates": [ { character, field, new, reason? } ],
-  "new_relationships":       [ { from, to, current, history?[], key_moments?[] } ],
+  "new_relationships":       [ { from, to, current, from_current?, history?[], key_moments?[] } ],
   "relationship_updates":    [ { from, to, delta, reason, new_current? } ],
   "new_arcs":                [ { title, tension, open_threads?[], growth_opportunities? } ],
   "arc_updates":             [ { id, change_type, new_value, reason? } ],
@@ -348,7 +348,12 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
    chapter, or significant sequence) concluded in the scan window. Summarize
    what happened, not every message. Propose even for smaller blocks (3+ messages
    of substance). A history entry is a compressed chronicle, NOT a key_moment
-   (which captures a single pivotal beat).
+    (which captures a single pivotal beat).
+9. Relationships are BIDIRECTIONAL. When you propose a new relationship from→to
+   with `current` describing from's view of to, also provide `from_current`
+   describing to's view of from (the reverse direction). If the scan window shows
+   nothing about the reverse, leave `from_current` empty – the reverse will be
+   auto-created as a placeholder.
 
 # Few-Shot example
 <brain_current>
@@ -382,7 +387,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
       "new": "beginnt, Kael wieder eine Chance zu geben",
       "reason": "Sie nimmt das Medaillon wortlos." }],
   "scene_update": { "location": "Taverne", "present": ["Aria","Kael"], "mood": "angespannt, leise" },
-  "new_relationships": [],
+  "new_relationships": [
+    { "from": "Aria", "to": "Kael", "current": "beginnt, Kael wieder eine Chance zu geben", "from_current": "Kael ist reumütig und hofft auf Vergebung" }
+  ],
   "relationship_updates": [],
   "new_arcs": [],
   "arc_updates": [],
@@ -743,7 +750,7 @@ export function validateProposals(json, migratedBrainXml) {
         });
     }
 
-    // --- new_relationships (ref: knownCharNames) ------------------------------
+    // --- new_relationships (ref: knownCharNames, BIDIRECTIONAL) ---------------
     const addedRelPairs = new Set();
     for (const item of src.new_relationships) {
         if (!item || typeof item !== 'object') { drop('new_relationships', item, 'not an object'); continue; }
@@ -755,6 +762,7 @@ export function validateProposals(json, migratedBrainXml) {
         if (!current) { drop('new_relationships', item, 'missing current'); continue; }
         if (!knownCharNames.has(from)) { drop('new_relationships', item, `unknown from "${from}"`); continue; }
         if (!knownCharNames.has(to)) { drop('new_relationships', item, `unknown to "${to}"`); continue; }
+        if (from === to) { drop('new_relationships', item, 'from equals to'); continue; }
         const pairKey = `${from}||${to}`;
         if (idx.relPairs.has(pairKey) || addedRelPairs.has(pairKey)) {
             drop('new_relationships', item, `relationship ${from}→${to} already exists`);
@@ -767,8 +775,30 @@ export function validateProposals(json, migratedBrainXml) {
             id, from, to, current,
             history: cleanStringArray(item.history),
             key_moments: cleanStringArray(item.key_moments),
+            reverseCurrent: trimString(item.from_current), // LLM's reverse-view if provided
         });
     }
+
+    // Auto-generiere fehlende Rückrichtungen (Bidirectional-Invariante)
+    for (const prop of [...proposals.filter(p => p.category === 'new_relationships')]) {
+        const reverseKey = `${prop.to}||${prop.from}`;
+        if (idx.relPairs.has(reverseKey) || addedRelPairs.has(reverseKey)) continue;
+        if (!knownCharNames.has(prop.to) || !knownCharNames.has(prop.from)) continue;
+        const revId = generateId('rel', `${prop.to}_${prop.from}`, existingIds);
+        addedRelPairs.add(reverseKey);
+        proposals.push({
+            category: 'new_relationships',
+            id: revId,
+            from: prop.to,
+            to: prop.from,
+            current: prop.reverseCurrent || '(keine Angabe)',
+            history: [],
+            key_moments: [],
+            reverseCurrent: prop.current, // die Ursprungsrichtung als reverseCurrent
+            _auto: true, // markiert als auto-generiert für Popup-Logging
+        });
+    }
+
     const knownRelPairs = new Set([...idx.relPairs, ...addedRelPairs]);
 
     // --- new_world_rules (flattened: String → Card) ---------------------------

@@ -13,7 +13,7 @@ explanation outside the JSON.
   "new_locations":           [ { name, description, atmosphere?, events_here?[] } ],
   "new_characters":          [ { name, core, appearance?, quirks?, background?, aliases?[] } ],
   "character_field_updates": [ { character, field, new, reason? } ],
-  "new_relationships":       [ { from, to, current, history?[], key_moments?[] } ],
+  "new_relationships":       [ { from, to, current, from_current?, history?[], key_moments?[] } ],
   "relationship_updates":    [ { from, to, delta, reason, new_current? } ],
   "new_arcs":                [ { title, tension, open_threads?[], growth_opportunities? } ],
   "arc_updates":             [ { id, change_type, new_value, reason? } ],
@@ -57,6 +57,11 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
    what happened, not every message. Propose even for smaller blocks (3+ messages
    of substance). A history entry is a compressed chronicle, NOT a key_moment
    (which captures a single pivotal beat).
+9. Relationships are BIDIRECTIONAL. When you propose a new relationship from→to
+   with `current` describing from's view of to, also provide `from_current`
+   describing to's view of from (the reverse direction). If the scan window shows
+   nothing about the reverse, leave `from_current` empty – the reverse will be
+   auto-created as a placeholder.
 
 # Few-Shot example
 <brain_current>
@@ -90,7 +95,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
       "new": "beginnt, Kael wieder eine Chance zu geben",
       "reason": "Sie nimmt das Medaillon wortlos." }],
   "scene_update": { "location": "Taverne", "present": ["Aria","Kael"], "mood": "angespannt, leise" },
-  "new_relationships": [],
+  "new_relationships": [
+    { "from": "Aria", "to": "Kael", "current": "beginnt, Kael wieder eine Chance zu geben", "from_current": "Kael ist reumütig und hofft auf Vergebung" }
+  ],
   "relationship_updates": [],
   "new_arcs": [],
   "arc_updates": [],

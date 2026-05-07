@@ -81,11 +81,23 @@ function parseBrain(xml) {
         atmosphere: text(loc.querySelector(':scope > atmosphere')),
     }));
 
-    // Relationships
-    data.relationships = [...root.querySelectorAll(':scope > relationships > relationship')].map(rel => ({
+    // Relationships — paired bidirectional
+    const rawRels = [...root.querySelectorAll(':scope > relationships > relationship')].map(rel => ({
         from: rel.getAttribute('from') || '?',
         to: rel.getAttribute('to') || '?',
         current: text(rel.querySelector(':scope > current')),
+    }));
+    const relPairs = new Map();
+    for (const r of rawRels) {
+        const key = [r.from, r.to].sort().join('||');
+        if (!relPairs.has(key)) relPairs.set(key, { names: new Set(), dirs: [] });
+        relPairs.get(key).names.add(r.from);
+        relPairs.get(key).names.add(r.to);
+        relPairs.get(key).dirs.push(r);
+    }
+    data.relationships = [...relPairs.values()].map(pair => ({
+        names: [...pair.names],
+        dirs: pair.dirs,
     }));
 
     // Key Moments
@@ -176,9 +188,14 @@ function buildLocCard(loc) {
     return d;
 }
 
-function buildRelCard(rel) {
+function buildRelCard(pair) {
     const d = el('div', { cls: 'ccs-hub-card ccs-hub-card--rel' });
-    d.innerHTML = `<span>${esc(rel.from)}</span> <i class="fa-solid fa-arrow-right"></i> <span>${esc(rel.to)}</span>: <span class="ccs-hub-sub">${esc(rel.current)}</span>`;
+    const nameLabel = pair.names.join(' ↔ ');
+    let html = `<div class="ccs-hub-name">${esc(nameLabel)}</div>`;
+    for (const dir of pair.dirs) {
+        html += `<div class="ccs-hub-sub">${esc(dir.from)} → ${esc(dir.to)}: ${esc(dir.current)}</div>`;
+    }
+    d.innerHTML = html;
     return d;
 }
 
