@@ -350,9 +350,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
    of substance). A history entry is a compressed chronicle, NOT a key_moment
     (which captures a single pivotal beat).
 9. Relationships are BIDIRECTIONAL. When you propose a new relationship from→to
-   with `current` describing from's view of to, also provide `from_current`
+   with \`current\` describing from's view of to, also provide \`from_current\`
    describing to's view of from (the reverse direction). If the scan window shows
-   nothing about the reverse, leave `from_current` empty – the reverse will be
+   nothing about the reverse, leave \`from_current\` empty – the reverse will be
    auto-created as a placeholder.
 
 # Few-Shot example
