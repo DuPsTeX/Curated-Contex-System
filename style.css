@@ -334,3 +334,219 @@
     font-size: 0.8em;
     padding: 0.15em 0.6em;
 }
+
+/* ========================================================================== */
+/* CCS Hub – Schwebendes Brain-Dashboard                                     */
+/* ========================================================================== */
+
+.ccs-hub-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid var(--grey30, #555);
+    background: var(--grey10, #222);
+    color: var(--grey70, #ccc);
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, border-color 0.2s;
+}
+.ccs-hub-toggle:hover {
+    border-color: var(--golden, #c9a44b);
+    color: var(--golden, #c9a44b);
+}
+.ccs-hub-toggle--active {
+    border-color: var(--golden, #c9a44b);
+    color: var(--golden, #c9a44b);
+    background: var(--grey20, #333);
+}
+
+.ccs-hub-panel {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    width: 320px;
+    max-height: calc(100vh - 120px);
+    background: var(--grey10, #1a1a1a);
+    border: 1px solid var(--grey30, #444);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    line-height: 1.4;
+    user-select: none;
+}
+
+.ccs-hub-handle {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 8px 12px;
+    background: var(--grey20, #2a2a2a);
+    border-radius: 10px 10px 0 0;
+    cursor: grab;
+    font-size: 14px;
+    color: var(--golden, #c9a44b);
+    flex-shrink: 0;
+}
+.ccs-hub-handle:active {
+    cursor: grabbing;
+}
+
+.ccs-hub-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--grey20, #2a2a2a);
+    border-bottom: 1px solid var(--grey30, #444);
+    flex-shrink: 0;
+}
+
+.ccs-hub-btn {
+    background: none;
+    border: 1px solid var(--grey30, #555);
+    color: var(--grey60, #aaa);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: color 0.15s, border-color 0.15s;
+}
+.ccs-hub-btn:hover {
+    color: var(--golden, #c9a44b);
+    border-color: var(--golden, #c9a44b);
+}
+.ccs-hub-btn--close:hover {
+    color: #e74c3c;
+    border-color: #e74c3c;
+}
+
+.ccs-hub-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px;
+}
+.ccs-hub-content::-webkit-scrollbar {
+    width: 6px;
+}
+.ccs-hub-content::-webkit-scrollbar-thumb {
+    background: var(--grey30, #555);
+    border-radius: 3px;
+}
+
+.ccs-hub-empty {
+    text-align: center;
+    color: var(--grey50, #777);
+    padding: 2em 1em;
+    font-style: italic;
+}
+
+/* --- Sections --- */
+.ccs-hub-section {
+    margin-bottom: 4px;
+}
+.ccs-hub-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 5px 8px;
+    background: var(--grey20, #2a2a2a);
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--grey70, #ccc);
+    transition: background 0.15s;
+}
+.ccs-hub-section-header:hover {
+    background: var(--grey30, #3a3a3a);
+}
+.ccs-hub-section-header.ccs-hub-collapsed {
+    opacity: 0.6;
+}
+.ccs-hub-count {
+    font-size: 0.85em;
+    opacity: 0.5;
+    margin-left: auto;
+}
+
+.ccs-hub-section-body {
+    padding: 3px 0 3px 4px;
+}
+
+/* --- Cards --- */
+.ccs-hub-card {
+    padding: 4px 8px;
+    margin: 2px 0;
+    background: var(--grey15, #1e1e1e);
+    border-left: 2px solid var(--grey30, #444);
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--grey70, #ccc);
+}
+
+.ccs-hub-card--scene {
+    border-left-color: #4caf50;
+}
+
+.ccs-hub-card--rel {
+    border-left-color: #e91e63;
+}
+
+.ccs-hub-name {
+    font-weight: bold;
+    color: var(--golden, #c9a44b);
+}
+
+.ccs-hub-char-name {
+    font-weight: bold;
+    color: var(--grey80, #ddd);
+}
+
+.ccs-hub-sub {
+    font-size: 0.92em;
+    color: var(--grey50, #888);
+    margin-top: 1px;
+}
+
+.ccs-hub-state {
+    font-size: 0.9em;
+    color: #f0a050;
+    font-style: italic;
+    margin-top: 2px;
+}
+
+.ccs-hub-mood {
+    color: #7eb8da;
+}
+
+.ccs-hub-km-badge,
+.ccs-hub-arc-badge {
+    display: inline-block;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    font-weight: bold;
+    color: #fff;
+    margin-right: 3px;
+    text-transform: uppercase;
+}
+
+/* Scene card: extra spacing for icon rows */
+.ccs-hub-card--scene div {
+    margin: 1px 0;
+}
+.ccs-hub-card--scene i {
+    width: 16px;
+    text-align: center;
+    color: var(--grey50, #888);
+}

@@ -4,6 +4,7 @@ import * as initializer from './src/initializer.js';
 import * as interceptor from './src/interceptor.js';
 import * as updater from './src/updater.js';
 import * as popup from './src/popup.js';
+import * as hub from './src/hub.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -238,6 +239,7 @@ async function onInitializeClicked() {
         await storage.saveLivingDocument(finalXml);
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
+        hub.refresh();
     } catch (err) {
         toastr.clear(progress);
         const msg = err?.message || String(err);
@@ -332,6 +334,7 @@ async function onViewClicked() {
         await storage.saveLivingDocument(finalXml);
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
+        hub.refresh();
     } catch (err) {
         toastr.error(err?.message || String(err), 'CCS: Speichern fehlgeschlagen', { timeOut: 10000 });
         console.error(`${LOG_PREFIX} save-from-viewer failed`, err);
@@ -455,6 +458,7 @@ async function onUpdateClicked() {
             result.cursorIndex,
         );
         updateBrainStateUI();
+        hub.refresh();
         const appliedN = applyResult.applied;
         const failedN = applyResult.failed.length;
         if (appliedN > 0 && failedN === 0) {
@@ -498,6 +502,7 @@ async function onDeleteClicked() {
         interceptor.clearSlot(ctx);
         toastr.success('Brain gelöscht.', 'CCS');
         updateBrainStateUI();
+        hub.refresh();
     } catch (err) {
         toastr.error(err?.message || String(err), 'CCS');
         console.error(`${LOG_PREFIX} delete failed`, err);
@@ -600,6 +605,7 @@ function onChatChanged() {
     // des vorigen Chats tragen, bis das nächste Gen-Event den Slot überschreibt.
     interceptor.clearSlot(ctx);
     updateBrainStateUI();
+    hub.refresh();
 }
 
 function addWandButtons() {
@@ -671,6 +677,9 @@ async function init() {
     // Wand-Menü-Buttons: sichtbare Knöpfe im Extensions-Dropdown (Zauberstab-Icon)
     addWandButtons();
 
+    // CCS Hub: schwebender Brain-Toggle-Button + auto-refresh
+    hub.injectToggleButton();
+
     const eventSource = ctx.eventSource;
     const eventTypes = ctx.eventTypes || ctx.event_types;
     if (eventSource && eventTypes && eventTypes.CHAT_CHANGED) {
@@ -690,7 +699,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {
