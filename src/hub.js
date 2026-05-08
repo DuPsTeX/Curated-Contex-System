@@ -4,6 +4,7 @@
 // API: hub.toggle() / hub.refresh() / hub.destroy()
 
 import * as storage from './storage.js';
+import * as chardetail from './chardetail.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -72,6 +73,16 @@ function parseBrain(xml) {
         role: ch.getAttribute('role') || 'npc',
         state: text(ch.querySelector(':scope > current_state')),
         core: text(ch.querySelector(':scope > core')),
+        appearance: text(ch.querySelector(':scope > appearance')),
+        background: text(ch.querySelector(':scope > background')),
+        abilities: text(ch.querySelector(':scope > abilities')),
+        quirks: text(ch.querySelector(':scope > quirks')),
+        goals: text(ch.querySelector(':scope > goals')),
+        speech_style: text(ch.querySelector(':scope > speech_style')),
+        stats: text(ch.querySelector(':scope > stats')),
+        inventory: text(ch.querySelector(':scope > inventory')),
+        reputation: text(ch.querySelector(':scope > reputation')),
+        image: text(ch.querySelector(':scope > image')),
     }));
 
     // Locations
@@ -170,12 +181,25 @@ function buildSceneCard(item) {
 }
 
 function buildCharCard(ch) {
-    const d = el('div', { cls: 'ccs-hub-card' });
+    const d = el('div', { cls: 'ccs-hub-card ccs-hub-card--char' });
     const star = ch.role === 'main' ? ' <i class="fa-solid fa-star" style="color:gold"></i>' : '';
-    let html = `<div class="ccs-hub-char-name">${esc(ch.name)}${star}</div>`;
+    let html = '';
+    if (ch.image && ch.image.startsWith('data:image')) {
+        html += `<img class="ccs-hub-char-thumb" src="${esc(ch.image)}" />`;
+    }
+    html += `<div class="ccs-hub-char-name">${esc(ch.name)}${star}</div>`;
     if (ch.core) html += `<div class="ccs-hub-sub">${esc(ch.core)}</div>`;
     if (ch.state) html += `<div class="ccs-hub-state">${esc(ch.state)}</div>`;
     d.innerHTML = html;
+    d.style.cursor = 'pointer';
+    d.addEventListener('click', () => {
+        // Get fresh brain XML for save context
+        storage.getLivingDocument().then(xml => {
+            chardetail.open(ch, xml || '');
+        }).catch(() => {
+            chardetail.open(ch, '');
+        });
+    });
     return d;
 }
 
