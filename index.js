@@ -5,6 +5,7 @@ import * as interceptor from './src/interceptor.js';
 import * as updater from './src/updater.js';
 import * as popup from './src/popup.js';
 import * as hub from './src/hub.js';
+import * as director from './src/director.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -40,6 +41,8 @@ const DEFAULT_SETTINGS = {
     historyEnabled: true,
     ccsTokenBudget: 0,
     maxChatMessages: 0,
+    directorEnabled: false,
+    directorDetail: 'standard',
 };
 
 function getContext() {
@@ -498,8 +501,9 @@ async function onDeleteClicked() {
     try {
         await storage.clearLivingDocument();
         // Auch den Injection-Slot leeren, damit bis zum nächsten Gen-Event
-        // kein Zombie-Brain mehr hängt.
-        interceptor.clearSlot(ctx);
+                    // kein Zombie-Brain mehr hängt.
+                    interceptor.clearSlot(ctx);
+                    interceptor.clearDirectorSlot(ctx);
         toastr.success('Brain gelöscht.', 'CCS');
         updateBrainStateUI();
         hub.refresh();
@@ -522,6 +526,7 @@ function bindUI() {
         // kein Brain mehr sieht – auch ohne dass der Interceptor zwischendurch lief.
         if (!s.enabled) {
             interceptor.clearSlot(getContext());
+            interceptor.clearDirectorSlot(getContext());
         }
         console.log(`${LOG_PREFIX} enabled set to ${s.enabled}`);
     });
@@ -570,6 +575,25 @@ function bindUI() {
     $('#ccs-update-btn').on('click', onUpdateClicked);
     $('#ccs-delete-btn').on('click', onDeleteClicked);
 
+    // Director-Agent Einstellungen
+    const $directorEnabled = $('#ccs-director-enabled');
+    $directorEnabled.prop('checked', settings.directorEnabled === true);
+    $directorEnabled.on('change', function () {
+        const s = getSettings();
+        s.directorEnabled = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} directorEnabled set to ${s.directorEnabled}`);
+    });
+
+    const $directorDetail = $('#ccs-director-detail');
+    $directorDetail.val(settings.directorDetail || 'standard');
+    $directorDetail.on('change', function () {
+        const s = getSettings();
+        s.directorDetail = $(this).val() || 'standard';
+        saveSettings();
+        console.log(`${LOG_PREFIX} directorDetail set to ${s.directorDetail}`);
+    });
+
     // Hinweis: Die früheren Prompt-Editor-Textareas wurden entfernt. Die System-
     // Prompts leben jetzt als Dateien unter `prompts/init-system.txt` bzw.
     // `prompts/update-system.txt` und wandern per `git push/pull` zwischen PCs.
@@ -600,10 +624,11 @@ function onChatChanged() {
     const chatId = ctx?.chatId ?? '(none)';
     const hasDoc = storage.hasLivingDocument();
     console.log(`${LOG_PREFIX} chat changed, chatId=${chatId}, hasLivingDocument=${hasDoc}`);
-    // Chat-Wechsel: Slot leeren. Der nächste Interceptor-Call befüllt ihn ggf. wieder
+    // Chat-Wechsel: Slots leeren. Der nächste Interceptor-Call befüllt sie ggf. wieder
     // mit dem Brain des neuen Chats. Ohne Clear würde ein Chat ohne Brain den Inhalt
-    // des vorigen Chats tragen, bis das nächste Gen-Event den Slot überschreibt.
+    // des vorigen Chats tragen, bis das nächste Gen-Event die Slots überschreibt.
     interceptor.clearSlot(ctx);
+    interceptor.clearDirectorSlot(ctx);
     updateBrainStateUI();
     hub.refresh();
 }
@@ -699,7 +724,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {
@@ -731,10 +756,11 @@ globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
             messages: Array.isArray(chat) ? chat.length : undefined,
         });
     } catch (err) {
-        // Letzte Verteidigungslinie. Versuch den Slot sicherheitshalber zu leeren,
+        // Letzte Verteidigungslinie. Versuch die Slots sicherheitshalber zu leeren,
         // damit bei einem Fehler kein Zombie-Inject verbleibt.
         console.error(`${LOG_PREFIX} interceptor: catastrophic error (swallowed to not block ST)`, err);
         try { interceptor.clearSlot(getContext()); } catch { /* give up */ }
+        try { interceptor.clearDirectorSlot(getContext()); } catch { /* give up */ }
     }
 };
 

@@ -19,6 +19,28 @@
                 <span>History (Chronik-Kompression)</span>
             </label>
 
+            <div class="ccs-director-section">
+                <div class="ccs-director-header">
+                    <i class="fa-solid fa-clapperboard"></i>
+                    <span>Director-Agent</span>
+                </div>
+
+                <label class="checkbox_label" for="ccs-director-enabled" title="Aktiviert den Director-Agenten: Analysiert die Szene vor jeder Generierung und gibt narrativen Guidance-Input an den Performer. Erfordert einen extra API-Call pro Runde.">
+                    <input id="ccs-director-enabled" type="checkbox" />
+                    <span>Director aktivieren</span>
+                </label>
+
+                <div class="ccs-director-detail">
+                    <label for="ccs-director-detail"><strong>Detail-Level:</strong></label>
+                    <select id="ccs-director-detail" class="text_pole">
+                        <option value="brief">Kurz (~0.5s)</option>
+                        <option value="standard" selected>Standard (~1s)</option>
+                        <option value="detailed">Detailliert (~2s)</option>
+                    </select>
+                    <small>Steuert wie ausführlich der Director die Szene analysiert. Längere Analyse = mehr Kontext für den Performer, aber auch mehr Latenz.</small>
+                </div>
+            </div>
+
             <div class="ccs-token-row">
                 <label for="ccs-token-budget"><strong>CCS Token-Budget:</strong></label>
                 <input id="ccs-token-budget" type="number" min="0" step="100" value="0" class="text_pole" style="width:100px" />
@@ -62,7 +84,7 @@
 
             <div class="ccs-advanced">
                 <small class="ccs-prompt-hint">
-                    <strong>Prompts anpassen:</strong> Die System-Prompts für "Brain initialisieren" und "Brain updaten" liegen als Dateien im Extension-Ordner unter <code>prompts/init-system.txt</code> bzw. <code>prompts/update-system.txt</code>. Editier sie mit einem Text-Editor, speichere und lade SillyTavern neu (F5). Die Änderungen wandern per <code>git push/pull</code> zwischen deinen PCs – siehe <code>prompts/README.md</code> für Details. Der Platzhalter <code>{{LANG_RULE}}</code> im Init-Prompt wird zur Laufzeit durch die gewählte Sprach-Regel ersetzt.
+                    <strong>Prompts anpassen:</strong> Die System-Prompts für "Brain initialisieren", "Brain updaten" und "Director-Agent" liegen als Dateien im Extension-Ordner unter <code>prompts/init-system.txt</code>, <code>prompts/update-system.txt</code> bzw. <code>prompts/director-system.txt</code>. Editier sie mit einem Text-Editor, speichere und lade SillyTavern neu (F5). Die Änderungen wandern per <code>git push/pull</code> zwischen deinen PCs – siehe <code>prompts/README.md</code> für Details. Der Platzhalter <code>{{LANG_RULE}}</code> im Init-Prompt wird zur Laufzeit durch die gewählte Sprach-Regel ersetzt.
                 </small>
             </div>
         </div>

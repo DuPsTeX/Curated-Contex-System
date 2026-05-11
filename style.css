@@ -23,6 +23,49 @@
     font-size: 0.8em;
 }
 
+/* ==========================================================================
+   Director-Agent Section (Phase 3)
+   ========================================================================== */
+
+.ccs-director-section {
+    margin: 0.75em 0;
+    padding: 0.5em 0.75em;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.ccs-director-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.5em;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--golden, #c9a44b);
+}
+
+.ccs-director-header i {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.ccs-director-detail {
+    margin: 0.5em 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25em;
+}
+
+.ccs-director-detail select {
+    width: 100%;
+}
+
+.ccs-director-detail small {
+    opacity: 0.7;
+    font-size: 0.8em;
+}
+
 .ccs-settings .ccs-status--active {
     color: #4caf50;
     font-weight: bold;

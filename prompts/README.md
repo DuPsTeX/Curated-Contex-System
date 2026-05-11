@@ -6,6 +6,9 @@ Hier liegen die System-Prompts, die die Extension an das LLM schickt.
   wenn du ein Brain aus Character Card + Lorebook erzeugen lässt.
 - **`update-system.txt`** – System-Prompt für "Brain updaten". Wird genutzt,
   wenn die Extension Chat-Fortschritt analysiert und Update-Vorschläge erzeugt.
+- **`director-system.txt`** – System-Prompt für den Director-Agenten. Wird genutzt,
+  wenn der Director vor jeder Generierung die Szene analysiert und einen
+  narrativen Brief für den Performer produziert.
 
 ## Warum zwei Dateien hier im Repo?
 

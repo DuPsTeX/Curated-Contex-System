@@ -5,11 +5,13 @@
 // werden ins Injection-Prompt aufgenommen. Kein LLM-Call – rein string-basiert.
 
 import * as storage from './storage.js';
+import * as director from './director.js';
 
 const LOG_PREFIX = '[CCS]';
 
 // Eindeutiger Slot-Key im setExtensionPrompt-Store. Muss extensionweit unique sein.
 export const SLOT_KEY = 'CCS_CORE';
+export const DIRECTOR_SLOT_KEY = 'CCS_DIRECTOR';
 
 // Numerische Enums aus SillyTavern (extension_prompt_types / extension_prompt_roles).
 // Third-Party-Extensions haben keinen sauberen Import auf die Core-Konstanten, also
@@ -298,6 +300,15 @@ export function clearSlot(ctx) {
 }
 
 /**
+ * Leert den Director-Slot.
+ * @param {object} ctx – SillyTavern-Context
+ */
+export function clearDirectorSlot(ctx) {
+    if (!ctx || typeof ctx.setExtensionPrompt !== 'function') return;
+    ctx.setExtensionPrompt(DIRECTOR_SLOT_KEY, '', POSITION_IN_PROMPT, 0, false, ROLE_SYSTEM);
+}
+
+/**
  * Setzt den Slot mit dem Always-Core-Text.
  * @param {object} ctx – SillyTavern-Context
  * @param {string} text – bereits gewrappter Envelope-Text
@@ -305,6 +316,16 @@ export function clearSlot(ctx) {
 export function setSlot(ctx, text) {
     if (!ctx || typeof ctx.setExtensionPrompt !== 'function') return;
     ctx.setExtensionPrompt(SLOT_KEY, text, POSITION_IN_PROMPT, 0, false, ROLE_SYSTEM);
+}
+
+/**
+ * Setzt den Director-Slot mit dem Director's Brief.
+ * @param {object} ctx – SillyTavern-Context
+ * @param {string} text – Director's Brief (plain text)
+ */
+export function setDirectorSlot(ctx, text) {
+    if (!ctx || typeof ctx.setExtensionPrompt !== 'function') return;
+    ctx.setExtensionPrompt(DIRECTOR_SLOT_KEY, text, POSITION_IN_PROMPT, 0, false, ROLE_SYSTEM);
 }
 
 /**
@@ -322,6 +343,7 @@ export async function runAlwaysCore({ ctx, settings, type }) {
     // Auch wenn wir gleich wieder setzen: der Clear garantiert, dass kein Zombie
     // aus einem früheren Call übrigbleibt.
     clearSlot(ctx);
+    clearDirectorSlot(ctx);
 
     try {
         if (!settings || settings.enabled === false) {
@@ -362,6 +384,29 @@ export async function runAlwaysCore({ ctx, settings, type }) {
         filtered = trimToBudget(filtered, settings.ccsTokenBudget ?? 0);
         const filteredLen = filtered.length;
 
+        // Director-Agent: analysiert die Szene und produziert einen narrativen Brief,
+        // der die Hauptgenerierung führt. Fail-soft – blockiert nie die Injektion.
+        if (settings.directorEnabled) {
+            try {
+                const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
+                const narrative = chat.filter(m => m && m.is_system !== true);
+                const last3 = narrative.slice(-3);
+                if (last3.length > 0 && filtered) {
+                    const { brief } = await director.runDirector({
+                        ctx,
+                        brain: filtered,
+                        chatWindow: last3,
+                        detail: settings.directorDetail || 'standard',
+                    });
+                    setDirectorSlot(ctx, brief);
+                    console.log(`${LOG_PREFIX} director: brief injected (${brief.length} chars)`);
+                }
+            } catch (err) {
+                console.warn(`${LOG_PREFIX} director: failed, falling back to normal generation`, err);
+                clearDirectorSlot(ctx);
+            }
+        }
+
         const text = buildAlwaysCoreText(filtered);
         if (!text) {
             return { action: 'cleared', reason: 'empty-envelope' };
@@ -379,7 +424,7 @@ export async function runAlwaysCore({ ctx, settings, type }) {
 
         return { action: 'injected', chars: text.length };
     } catch (err) {
-        // Fallback: bei unerwarteten Fehlern nie ST blocken. Slot ist bereits geleert.
+        // Fallback: bei unerwarteten Fehlern nie ST blocken. Slots sind bereits geleert.
         console.error(`${LOG_PREFIX} interceptor: unexpected error`, err);
         return { action: 'cleared', reason: 'unexpected-error' };
     }
