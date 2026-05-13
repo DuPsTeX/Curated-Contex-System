@@ -6,6 +6,7 @@ import * as updater from './src/updater.js';
 import * as popup from './src/popup.js';
 import * as hub from './src/hub.js';
 import * as director from './src/director.js';
+import * as pins from './src/pins.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -99,6 +100,52 @@ function updateBrainStateUI() {
     $el.text(has ? 'Brain: vorhanden' : 'Brain: leer');
     $el.toggleClass('ccs-brain-state--has', has);
     $el.toggleClass('ccs-brain-state--empty', !has);
+}
+
+async function refreshPinsUI() {
+    const $list = $('#ccs-pins-list');
+    if (!$list.length) return;
+
+    let pinList = [];
+    try {
+        const xml = await storage.getLivingDocument();
+        pinList = pins.getPins(xml);
+    } catch { /* nop */ }
+
+    if (!pinList.length) {
+        $list.html('<div class="ccs-pins-empty">Keine Pins</div>');
+        return;
+    }
+
+    $list.empty();
+    pinList.forEach((text, i) => {
+        const item = document.createElement('div');
+        item.className = 'ccs-pin-item';
+        item.innerHTML = `
+            <span class="ccs-pin-text">${escapeHtml(text)}</span>
+            <button class="ccs-pin-delete-btn" data-pin-index="${i}" title="Pin löschen">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        `;
+        item.querySelector('.ccs-pin-delete-btn').addEventListener('click', async function () {
+            const idx = parseInt(this.getAttribute('data-pin-index'), 10);
+            try {
+                await pins.deletePinAndSave(idx);
+                refreshPinsUI();
+                hub.refresh();
+            } catch (err) {
+                toastr.error(err?.message || String(err), 'CCS: Pin löschen fehlgeschlagen');
+                console.error(`${LOG_PREFIX} delete pin failed`, err);
+            }
+        });
+        $list.append(item);
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
 }
 
 async function onInitializeClicked() {
@@ -242,6 +289,7 @@ async function onInitializeClicked() {
         await storage.saveLivingDocument(finalXml);
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
+        refreshPinsUI();
         hub.refresh();
     } catch (err) {
         toastr.clear(progress);
@@ -337,6 +385,7 @@ async function onViewClicked() {
         await storage.saveLivingDocument(finalXml);
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
+        refreshPinsUI();
         hub.refresh();
     } catch (err) {
         toastr.error(err?.message || String(err), 'CCS: Speichern fehlgeschlagen', { timeOut: 10000 });
@@ -406,6 +455,7 @@ async function onUpdateClicked() {
         try {
             await updater.applyProposals([], result.migratedBrainXml, result.cursorIndex);
             updateBrainStateUI();
+            refreshPinsUI();
             toastr.info('Keine neuen Einträge – Cursor aktualisiert.', 'CCS');
         } catch (err) {
             toastr.error(err?.message || String(err), 'CCS: Cursor-Update fehlgeschlagen', { timeOut: 10000 });
@@ -461,6 +511,7 @@ async function onUpdateClicked() {
             result.cursorIndex,
         );
         updateBrainStateUI();
+        refreshPinsUI();
         hub.refresh();
         const appliedN = applyResult.applied;
         const failedN = applyResult.failed.length;
@@ -506,6 +557,7 @@ async function onDeleteClicked() {
                     interceptor.clearDirectorSlot(ctx);
         toastr.success('Brain gelöscht.', 'CCS');
         updateBrainStateUI();
+        refreshPinsUI();
         hub.refresh();
     } catch (err) {
         toastr.error(err?.message || String(err), 'CCS');
@@ -598,8 +650,36 @@ function bindUI() {
     // Prompts leben jetzt als Dateien unter `prompts/init-system.txt` bzw.
     // `prompts/update-system.txt` und wandern per `git push/pull` zwischen PCs.
 
+    // Pin-Eingabe: Enter fügt hinzu
+    const $pinInput = $('#ccs-pin-input');
+    $pinInput.on('keydown', async function (ev) {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        const text = $(this).val().trim();
+        if (!text) return;
+        const ctx = getContext();
+        if (!ctx?.chatId) {
+            toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS');
+            return;
+        }
+        if (!storage.hasLivingDocument()) {
+            toastr.info('Kein Brain vorhanden – bitte zuerst initialisieren.', 'CCS');
+            return;
+        }
+        try {
+            await pins.addPinAndSave(text);
+            $(this).val('');
+            refreshPinsUI();
+            hub.refresh();
+        } catch (err) {
+            toastr.error(err?.message || String(err), 'CCS: Pin hinzufügen fehlgeschlagen');
+            console.error(`${LOG_PREFIX} add pin failed`, err);
+        }
+    });
+
     updateStatusUI();
     updateBrainStateUI();
+    refreshPinsUI();
 }
 
 async function mountSettingsPanel() {
@@ -630,6 +710,7 @@ function onChatChanged() {
     interceptor.clearSlot(ctx);
     interceptor.clearDirectorSlot(ctx);
     updateBrainStateUI();
+    refreshPinsUI();
     hub.refresh();
 }
 
@@ -724,7 +805,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {

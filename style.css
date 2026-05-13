@@ -66,6 +66,98 @@
     font-size: 0.8em;
 }
 
+/* ==========================================================================
+   Pins Section (Phase 3) – Manuelle Merkzettel
+   ========================================================================== */
+
+.ccs-pins-section {
+    margin: 0.75em 0;
+    padding: 0.5em 0.75em;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.ccs-pins-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.3em;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--golden, #c9a44b);
+}
+
+.ccs-pins-header i {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.ccs-pins-hint {
+    font-weight: normal;
+    font-size: 0.8em;
+    opacity: 0.65;
+    margin-left: auto;
+}
+
+.ccs-pins-input-row {
+    margin-bottom: 0.4em;
+}
+
+.ccs-pins-input-row input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.ccs-pins-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ccs-pins-empty {
+    text-align: center;
+    opacity: 0.5;
+    font-size: 0.85em;
+    padding: 0.5em 0;
+    font-style: italic;
+}
+
+.ccs-pin-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 3px 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 3px;
+    font-size: 0.88em;
+    line-height: 1.35;
+}
+
+.ccs-pin-text {
+    flex: 1;
+    word-break: break-word;
+}
+
+.ccs-pin-delete-btn {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--grey50, #888);
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    transition: color 0.15s, background 0.15s;
+}
+
+.ccs-pin-delete-btn:hover {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+}
+
 .ccs-settings .ccs-status--active {
     color: #4caf50;
     font-weight: bold;
