@@ -121,16 +121,60 @@ async function refreshPinsUI() {
     pinList.forEach((text, i) => {
         const item = document.createElement('div');
         item.className = 'ccs-pin-item';
-        item.innerHTML = `
-            <span class="ccs-pin-text">${escapeHtml(text)}</span>
-            <button class="ccs-pin-delete-btn" data-pin-index="${i}" title="Pin löschen">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-        `;
-        item.querySelector('.ccs-pin-delete-btn').addEventListener('click', async function () {
-            const idx = parseInt(this.getAttribute('data-pin-index'), 10);
+
+        const textEl = document.createElement('span');
+        textEl.className = 'ccs-pin-text';
+        textEl.textContent = text;
+        textEl.title = 'Doppelklick zum Bearbeiten';
+        textEl.addEventListener('dblclick', () => {
+            if (textEl.querySelector('textarea')) return;
+
+            const ta = document.createElement('textarea');
+            ta.className = 'ccs-pin-edit';
+            ta.value = text;
+            ta.style.width = '100%';
+            ta.style.minHeight = '2.5em';
+            ta.style.resize = 'vertical';
+            ta.style.fontFamily = 'inherit';
+            ta.style.fontSize = 'inherit';
+            textEl.textContent = '';
+            textEl.appendChild(ta);
+            ta.focus();
+
+            const finish = async (save) => {
+                const newText = ta.value.trim();
+                textEl.innerHTML = '';
+                if (save && newText && newText !== text) {
+                    try {
+                        await pins.updatePinAndSave(i, newText);
+                        hub.refresh();
+                    } catch (err) {
+                        toastr.error(err?.message || String(err), 'CCS: Pin bearbeiten fehlgeschlagen');
+                        console.error(`${LOG_PREFIX} update pin failed`, err);
+                    }
+                }
+                refreshPinsUI();
+            };
+
+            ta.addEventListener('blur', () => finish(true));
+            ta.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' && !ev.shiftKey) {
+                    ev.preventDefault();
+                    ta.blur();
+                } else if (ev.key === 'Escape') {
+                    ev.preventDefault();
+                    finish(false);
+                }
+            });
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'ccs-pin-delete-btn';
+        delBtn.title = 'Pin löschen';
+        delBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        delBtn.addEventListener('click', async function () {
             try {
-                await pins.deletePinAndSave(idx);
+                await pins.deletePinAndSave(i);
                 refreshPinsUI();
                 hub.refresh();
             } catch (err) {
@@ -138,14 +182,11 @@ async function refreshPinsUI() {
                 console.error(`${LOG_PREFIX} delete pin failed`, err);
             }
         });
+
+        item.appendChild(textEl);
+        item.appendChild(delBtn);
         $list.append(item);
     });
-}
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
 }
 
 async function onInitializeClicked() {

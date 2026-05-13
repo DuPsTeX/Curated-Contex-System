@@ -91,6 +91,32 @@ export function brainWithoutPin(brainXml, index) {
 }
 
 /**
+ * Ersetzt den Text eines Pins an Index und gibt das Brain-XML zurück.
+ * @param {string} brainXml
+ * @param {number} index
+ * @param {string} newText
+ * @returns {string}
+ */
+export function brainWithUpdatedPin(brainXml, index, newText) {
+    if (!brainXml || !newText || !newText.trim()) return brainXml;
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(brainXml, 'application/xml');
+        if (doc.querySelector('parsererror')) return brainXml;
+
+        const pins = [...doc.querySelectorAll(':scope > pinned > pin')];
+        if (index >= 0 && index < pins.length) {
+            pins[index].textContent = newText.trim();
+        }
+
+        return new XMLSerializer().serializeToString(doc);
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} pins: failed to update pin`, err);
+        return brainXml;
+    }
+}
+
+/**
  * Convenience: Aktuelles Brain laden, Pin hinzufügen, speichern.
  * @param {string} text
  */
@@ -112,4 +138,17 @@ export async function deletePinAndSave(index) {
     const updated = brainWithoutPin(xml, index);
     await storage.saveLivingDocument(updated);
     console.log(`${LOG_PREFIX} pins: removed index ${index}`);
+}
+
+/**
+ * Convenience: Aktuelles Brain laden, Pin-Text ersetzen, speichern.
+ * @param {number} index
+ * @param {string} text
+ */
+export async function updatePinAndSave(index, text) {
+    const xml = await storage.getLivingDocument();
+    if (!xml) throw new Error('Kein Brain vorhanden');
+    const updated = brainWithUpdatedPin(xml, index, text);
+    await storage.saveLivingDocument(updated);
+    console.log(`${LOG_PREFIX} pins: updated index ${index}`);
 }

@@ -158,6 +158,15 @@
     background: rgba(231, 76, 60, 0.1);
 }
 
+.ccs-pin-edit {
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    border: 1px solid var(--golden, #c9a44b);
+    background: var(--grey10, #1a1a1a);
+    color: inherit;
+    box-sizing: border-box;
+}
+
 .ccs-settings .ccs-status--active {
     color: #4caf50;
     font-weight: bold;
