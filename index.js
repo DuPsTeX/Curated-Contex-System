@@ -44,6 +44,9 @@ const DEFAULT_SETTINGS = {
     maxChatMessages: 0,
     directorEnabled: false,
     directorDetail: 'standard',
+    autoUpdateEnabled: false,
+    autoUpdateEvery: 10,
+    autoUpdateAccept: false,
 };
 
 function getContext() {
@@ -328,6 +331,8 @@ async function onInitializeClicked() {
 
         const finalXml = (ta.value || '').trim();
         await storage.saveLivingDocument(finalXml);
+        pendingUpdate = null;
+        updatePendingUI();
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
         refreshPinsUI();
@@ -434,80 +439,95 @@ async function onViewClicked() {
     }
 }
 
-async function onUpdateClicked() {
+// --- Brain-Update (manuell + automatisch) ------------------------------------
+//
+// Beide Wege nutzen updater.runUpdate(). Manuell: sofort Review-Popup.
+// Automatisch (alle N Nachrichten): Ergebnis wird als `pendingUpdate` gesammelt
+// und per Toast/Badge zur Freigabe angeboten – oder, wenn "ohne Rückfrage"
+// aktiv ist, direkt übernommen.
+
+/** Analysierter, noch nicht freigegebener Update-Block: { chatId, result } */
+let pendingUpdate = null;
+let updateRunning = false;
+let autoUpdateTimer = null;
+
+/** Auto-Update analysiert die jüngsten N Messages nicht (Swipe/Edit möglich). */
+const AUTO_HOLD_BACK = 2;
+
+function setUpdateBusy(busy) {
+    updateRunning = busy;
+    $('#ccs-update-btn').prop('disabled', busy);
+}
+
+function updatePendingUI() {
     const ctx = getContext();
-    if (!ctx) return;
-    if (!ctx.chatId) {
-        toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS', { preventDuplicates: true });
-        return;
-    }
-    const settings = getSettings();
-    if (!settings.enabled) {
-        toastr.warning('CCS ist deaktiviert – bitte oben aktivieren.', 'CCS', { preventDuplicates: true });
-        return;
-    }
-    if (!storage.hasLivingDocument()) {
-        toastr.info('Kein Brain vorhanden – bitte zuerst initialisieren.', 'CCS', { preventDuplicates: true });
-        return;
-    }
+    const n = pendingUpdate && pendingUpdate.chatId === ctx?.chatId
+        ? pendingUpdate.result.proposals.length
+        : 0;
+    $('#ccs-pending-badge')
+        .text(n ? `${n} ${n === 1 ? 'Vorschlag wartet' : 'Vorschläge warten'} auf Freigabe – hier klicken` : '')
+        .toggle(n > 0);
+}
 
-    // Progress-Toast sticky, Button-Lock bis das Ende erreicht ist.
-    const $btn = $('#ccs-update-btn').prop('disabled', true);
-    toastr.clear();
-    const progress = toastr.info('Chat wird analysiert... Das kann einen Moment dauern.', 'CCS', {
-        timeOut: 0,
-        extendedTimeOut: 0,
-        tapToDismiss: false,
-    });
-
-    let result;
-    try {
-        // System-Prompt wird intern via `loadUpdateSystemPrompt()` aus
-        // `prompts/update-system.txt` geladen (mit in-Code-Fallback).
-        result = await updater.runUpdate({ ctx, settings });
-    } catch (err) {
-        toastr.clear(progress);
-        const msg = err?.message || String(err);
-        toastr.error(msg, 'CCS: Fehler beim Update', { timeOut: 10000 });
-        console.error(`${LOG_PREFIX} update failed`, err);
-        $btn.prop('disabled', false);
-        return;
+function notifyRemaining(remaining) {
+    if (remaining > 0) {
+        toastr.info(`Noch ${remaining} Nachricht${remaining === 1 ? '' : 'en'} offen – für den nächsten Block erneut "Brain updaten".`, 'CCS', { timeOut: 8000 });
     }
-    toastr.clear(progress);
+}
 
-    // Scan-Window leer → nichts Neues gespielt. Kein Save, kein Cursor-Schreiben.
-    if (result.scanWindowEmpty) {
-        toastr.info('Nichts Neues seit letztem Update.', 'CCS', { preventDuplicates: true });
-        $btn.prop('disabled', false);
-        return;
-    }
+function refreshAfterSave() {
+    updateBrainStateUI();
+    refreshPinsUI();
+    hub.refresh();
+}
 
-    // LLM-Response nicht schema-konform → Error. Cursor bleibt stehen.
-    if (!result.shape_ok) {
-        toastr.error('Update-Antwort strukturell ungültig (shape_ok=false). Brain unverändert.', 'CCS', { timeOut: 10000 });
-        console.warn(`${LOG_PREFIX} update shape_ok=false`, result);
-        $btn.prop('disabled', false);
-        return;
+/**
+ * Wendet Proposals auf das AKTUELLE Brain an. Zwischen Analyse und Freigabe
+ * können Pins oder manuelle Edits dazugekommen sein – die dürfen nicht durch
+ * den Analyse-Stand überschrieben werden. Hat sich der Cursor verändert (ein
+ * anderes Update lief dazwischen), ist das Ergebnis veraltet → Abbruch.
+ */
+async function applyUpdateResult(result, approved) {
+    const current = await storage.getLivingDocument();
+    if (!current) throw new Error('Brain nicht mehr vorhanden.');
+    if (!Object.is(interceptor.readCursor(current), result.baseCursor)) {
+        throw new Error('Brain wurde inzwischen anderweitig aktualisiert – Vorschläge verworfen.');
     }
+    const { xml: base } = updater.migrateLegacyBrain(current);
+    return updater.applyProposals(approved, base, result.cursorIndex, getSettings(), result.chatId);
+}
+
+function toastApplySummary(applyResult) {
+    const appliedN = applyResult.applied;
+    const failedN = applyResult.failed.length;
+    if (appliedN > 0 && failedN === 0) {
+        toastr.success(`${appliedN} Änderung${appliedN === 1 ? '' : 'en'} übernommen.`, 'CCS');
+    } else if (appliedN > 0 && failedN > 0) {
+        toastr.warning(`${appliedN} übernommen, ${failedN} fehlgeschlagen (siehe Konsole).`, 'CCS', { timeOut: 10000 });
+    } else if (failedN > 0) {
+        // applied === 0 && failed > 0: kein Save; Brain ist unverändert.
+        toastr.error(`0 übernommen, ${failedN} fehlgeschlagen. Brain unverändert.`, 'CCS', { timeOut: 10000 });
+    }
+}
+
+/**
+ * Zeigt das Review-Popup für ein Update-Ergebnis und wendet die freigegebenen
+ * Proposals an. Leere Proposal-Liste → nur Cursor nachziehen.
+ * @returns {Promise<boolean>} true, wenn gespeichert wurde
+ */
+async function reviewAndApply(result) {
+    const ctx = getContext();
 
     // Shape ok, aber leere Vorschläge → nur Cursor nachziehen, damit die schon
     // analysierten Messages bei nächstem Klick nicht wieder gescannt werden.
     if (!result.proposals.length) {
-        try {
-            await updater.applyProposals([], result.migratedBrainXml, result.cursorIndex);
-            updateBrainStateUI();
-            refreshPinsUI();
-            toastr.info('Keine neuen Einträge – Cursor aktualisiert.', 'CCS');
-        } catch (err) {
-            toastr.error(err?.message || String(err), 'CCS: Cursor-Update fehlgeschlagen', { timeOut: 10000 });
-            console.error(`${LOG_PREFIX} cursor-only save failed`, err);
-        } finally {
-            $btn.prop('disabled', false);
-        }
-        return;
+        await applyUpdateResult(result, []);
+        refreshAfterSave();
+        toastr.info('Keine neuen Einträge – Cursor aktualisiert.', 'CCS');
+        notifyRemaining(result.remaining);
+        return true;
     }
 
-    // Popup bauen und anzeigen
     const popupApi = popup.renderUpdatePopup({
         proposals: result.proposals,
         migratedBrainXml: result.migratedBrainXml,
@@ -538,38 +558,156 @@ async function onUpdateClicked() {
     });
 
     if (choice !== ctx.POPUP_RESULT.AFFIRMATIVE) {
-        toastr.info('Update abgebrochen – Cursor unverändert.', 'CCS');
-        $btn.prop('disabled', false);
+        toastr.info('Update abgebrochen – Cursor unverändert. Die Nachrichten werden beim nächsten Update erneut analysiert.', 'CCS');
+        return false;
+    }
+
+    const applyResult = await applyUpdateResult(result, popupApi.collectApproved());
+    refreshAfterSave();
+    toastApplySummary(applyResult);
+    if (applyResult.applied > 0) notifyRemaining(result.remaining);
+    return applyResult.applied > 0;
+}
+
+/** Prüft ein frisches runUpdate-Ergebnis auf "nichts zu tun" / "kaputt". */
+function checkUpdateResult(result, { silent = false } = {}) {
+    if (result.scanWindowEmpty) {
+        if (!silent) toastr.info('Nichts Neues seit letztem Update.', 'CCS', { preventDuplicates: true });
+        return false;
+    }
+    if (!result.shape_ok) {
+        toastr.error('Update-Antwort strukturell ungültig (shape_ok=false). Brain unverändert.', 'CCS', { timeOut: 10000 });
+        console.warn(`${LOG_PREFIX} update shape_ok=false`, result);
+        return false;
+    }
+    return true;
+}
+
+async function onUpdateClicked() {
+    const ctx = getContext();
+    if (!ctx) return;
+    if (!ctx.chatId) {
+        toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const settings = getSettings();
+    if (!settings.enabled) {
+        toastr.warning('CCS ist deaktiviert – bitte oben aktivieren.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    if (!storage.hasLivingDocument()) {
+        toastr.info('Kein Brain vorhanden – bitte zuerst initialisieren.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    if (updateRunning) {
+        toastr.info('Ein Update läuft bereits – bitte kurz warten.', 'CCS', { preventDuplicates: true });
         return;
     }
 
-    // Apply
-    const approved = popupApi.collectApproved();
+    setUpdateBusy(true);
     try {
-        const applyResult = await updater.applyProposals(
-            approved,
-            result.migratedBrainXml,
-            result.cursorIndex,
-        );
-        updateBrainStateUI();
-        refreshPinsUI();
-        hub.refresh();
-        const appliedN = applyResult.applied;
-        const failedN = applyResult.failed.length;
-        if (appliedN > 0 && failedN === 0) {
-            toastr.success(`${appliedN} Änderung${appliedN === 1 ? '' : 'en'} übernommen.`, 'CCS');
-        } else if (appliedN > 0 && failedN > 0) {
-            toastr.warning(`${appliedN} übernommen, ${failedN} fehlgeschlagen (siehe Konsole).`, 'CCS', { timeOut: 10000 });
+        // Gesammelte Auto-Update-Vorschläge haben Vorrang – die sind schon analysiert.
+        let result;
+        if (pendingUpdate && pendingUpdate.chatId === ctx.chatId) {
+            result = pendingUpdate.result;
+            pendingUpdate = null;
+            updatePendingUI();
         } else {
-            // applied === 0 && failed > 0: kein Save; Brain ist unverändert.
-            toastr.error(`0 übernommen, ${failedN} fehlgeschlagen. Brain unverändert.`, 'CCS', { timeOut: 10000 });
+            toastr.clear();
+            const progress = toastr.info('Chat wird analysiert... Das kann einen Moment dauern.', 'CCS', {
+                timeOut: 0,
+                extendedTimeOut: 0,
+                tapToDismiss: false,
+            });
+            try {
+                // System-Prompt wird intern via `loadUpdateSystemPrompt()` aus
+                // `prompts/update-system.txt` geladen.
+                result = await updater.runUpdate({ ctx, settings });
+            } finally {
+                toastr.clear(progress);
+            }
+            if (!checkUpdateResult(result)) return;
+        }
+
+        await reviewAndApply(result);
+    } catch (err) {
+        toastr.error(err?.message || String(err), 'CCS: Fehler beim Update', { timeOut: 10000 });
+        console.error(`${LOG_PREFIX} update failed`, err);
+    } finally {
+        setUpdateBusy(false);
+    }
+    scheduleAutoUpdate();
+}
+
+/** Zählt narrative Messages seit dem Cursor (ohne die zurückgehaltenen jüngsten). */
+async function countUnanalyzed(ctx) {
+    const xml = await storage.getLivingDocument();
+    if (!xml) return 0;
+    const chat = Array.isArray(ctx.chat) ? ctx.chat.slice(0, Math.max(0, ctx.chat.length - AUTO_HOLD_BACK)) : [];
+    const plan = updater.planScanWindow(chat, interceptor.readCursor(xml));
+    return plan.messages.length + plan.remaining;
+}
+
+async function runAutoUpdate() {
+    const ctx = getContext();
+    const settings = getSettings();
+    if (!ctx?.chatId || !settings.enabled || !settings.autoUpdateEnabled) return;
+    if (updateRunning || (pendingUpdate && pendingUpdate.chatId === ctx.chatId)) return;
+    if (!storage.hasLivingDocument()) return;
+
+    const open = await countUnanalyzed(ctx);
+    if (open < settings.autoUpdateEvery) return;
+
+    console.log(`${LOG_PREFIX} auto-update: ${open} unanalyzed messages (threshold=${settings.autoUpdateEvery})`);
+    setUpdateBusy(true);
+    let again = false;
+    try {
+        const result = await updater.runUpdate({ ctx, settings, holdBack: AUTO_HOLD_BACK });
+        if (getContext()?.chatId !== result.chatId) return; // Chat gewechselt → verwerfen
+        if (!checkUpdateResult(result, { silent: true })) return;
+
+        // "Ohne Rückfrage": Popup-Logik unsichtbar nutzen – gleiche IDs, gleiche
+        // Validierung wie beim manuellen Freigeben. Ungültig → doch zur Freigabe.
+        let approved = null;
+        if (!result.proposals.length) {
+            approved = [];
+        } else if (settings.autoUpdateAccept) {
+            const api = popup.renderUpdatePopup({ proposals: result.proposals, migratedBrainXml: result.migratedBrainXml, reasoning: '' });
+            if (api.validate().ok) approved = api.collectApproved();
+        }
+
+        if (approved) {
+            const applyResult = await applyUpdateResult(result, approved);
+            refreshAfterSave();
+            if (result.proposals.length) {
+                toastr.success(`Auto-Update: ${applyResult.applied} Änderung${applyResult.applied === 1 ? '' : 'en'} übernommen.`, 'CCS');
+            }
+            if (applyResult.failed.length) toastApplySummary(applyResult);
+            again = result.remaining > 0;
+        } else {
+            pendingUpdate = { chatId: result.chatId, result };
+            updatePendingUI();
+            const n = result.proposals.length;
+            toastr.info(`${n} ${n === 1 ? 'Vorschlag' : 'Vorschläge'} bereit – hier klicken zum Prüfen.`, 'CCS Auto-Update', {
+                timeOut: 15000,
+                onclick: () => onUpdateClicked(),
+            });
         }
     } catch (err) {
-        toastr.error(err?.message || String(err), 'CCS: Apply fehlgeschlagen', { timeOut: 10000 });
-        console.error(`${LOG_PREFIX} applyProposals failed`, err);
+        console.warn(`${LOG_PREFIX} auto-update failed`, err);
+        toastr.warning(err?.message || String(err), 'CCS: Auto-Update fehlgeschlagen', { timeOut: 8000, preventDuplicates: true });
     } finally {
-        $btn.prop('disabled', false);
+        setUpdateBusy(false);
     }
+    if (again) scheduleAutoUpdate();
+}
+
+/** Entprellt: mehrere Events kurz hintereinander lösen nur einen Lauf aus. */
+function scheduleAutoUpdate() {
+    clearTimeout(autoUpdateTimer);
+    autoUpdateTimer = setTimeout(() => {
+        runAutoUpdate().catch(err => console.warn(`${LOG_PREFIX} auto-update error`, err));
+    }, 1500);
 }
 
 async function onDeleteClicked() {
@@ -592,6 +730,8 @@ async function onDeleteClicked() {
     if (res !== ctx.POPUP_RESULT.AFFIRMATIVE) return;
     try {
         await storage.clearLivingDocument();
+        pendingUpdate = null;
+        updatePendingUI();
         // Auch den Injection-Slot leeren, damit bis zum nächsten Gen-Event
                     // kein Zombie-Brain mehr hängt.
                     interceptor.clearSlot(ctx);
@@ -662,6 +802,39 @@ function bindUI() {
         saveSettings();
         console.log(`${LOG_PREFIX} maxChatMessages set to ${s.maxChatMessages}`);
     });
+
+    // Auto-Update
+    const $autoEnabled = $('#ccs-auto-update-enabled');
+    $autoEnabled.prop('checked', settings.autoUpdateEnabled === true);
+    $autoEnabled.on('change', function () {
+        const s = getSettings();
+        s.autoUpdateEnabled = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} autoUpdateEnabled set to ${s.autoUpdateEnabled}`);
+        if (s.autoUpdateEnabled) scheduleAutoUpdate();
+    });
+
+    const $autoEvery = $('#ccs-auto-update-every');
+    $autoEvery.val(settings.autoUpdateEvery);
+    $autoEvery.on('change', function () {
+        const s = getSettings();
+        const v = parseInt($(this).val(), 10);
+        s.autoUpdateEvery = Number.isFinite(v) && v >= 2 ? v : DEFAULT_SETTINGS.autoUpdateEvery;
+        $(this).val(s.autoUpdateEvery);
+        saveSettings();
+        console.log(`${LOG_PREFIX} autoUpdateEvery set to ${s.autoUpdateEvery}`);
+    });
+
+    const $autoAccept = $('#ccs-auto-update-accept');
+    $autoAccept.prop('checked', settings.autoUpdateAccept === true);
+    $autoAccept.on('change', function () {
+        const s = getSettings();
+        s.autoUpdateAccept = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} autoUpdateAccept set to ${s.autoUpdateAccept}`);
+    });
+
+    $('#ccs-pending-badge').on('click', onUpdateClicked);
 
     $('#ccs-init-btn').on('click', onInitializeClicked);
     $('#ccs-view-btn').on('click', onViewClicked);
@@ -750,7 +923,9 @@ function onChatChanged() {
     // des vorigen Chats tragen, bis das nächste Gen-Event die Slots überschreibt.
     interceptor.clearSlot(ctx);
     interceptor.clearDirectorSlot(ctx);
+    clearTimeout(autoUpdateTimer);
     updateBrainStateUI();
+    updatePendingUI();
     refreshPinsUI();
     hub.refresh();
 }
@@ -831,6 +1006,8 @@ async function init() {
     const eventTypes = ctx.eventTypes || ctx.event_types;
     if (eventSource && eventTypes && eventTypes.CHAT_CHANGED) {
         eventSource.on(eventTypes.CHAT_CHANGED, onChatChanged);
+        // Auto-Update: nach jeder fertigen KI-Antwort prüfen, ob genug Neues da ist.
+        if (eventTypes.MESSAGE_RECEIVED) eventSource.on(eventTypes.MESSAGE_RECEIVED, scheduleAutoUpdate);
     } else {
         console.warn(`${LOG_PREFIX} CHAT_CHANGED event not wired (missing eventSource or eventTypes)`);
     }
@@ -853,25 +1030,8 @@ globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
         const ctx = getContext();
         const settings = getSettings();
 
-        // Chat-History auf max N Nachrichten kappen (ältere → CCS-History)
-        const max = settings.maxChatMessages;
-        if (max > 0 && Array.isArray(chat)) {
-            const narrative = [];
-            for (let i = chat.length - 1; i >= 0; i--) {
-                const m = chat[i];
-                if (m && m.is_system !== true && !m.injected) narrative.push(i);
-            }
-            if (narrative.length > max) {
-                const before = chat.length;
-                const toRemove = new Set(narrative.slice(max));
-                for (let i = chat.length - 1; i >= 0; i--) {
-                    if (toRemove.has(i)) chat.splice(i, 1);
-                }
-                console.log(`${LOG_PREFIX} interceptor: trimmed chat from ${before} to ${chat.length} messages (max=${max})`);
-            }
-        }
-
-        const result = await interceptor.runAlwaysCore({ ctx, settings, type });
+        // Kappen auf maxChatMessages passiert in runAlwaysCore (braucht den Brain-Cursor).
+        const result = await interceptor.runAlwaysCore({ ctx, settings, type, chat });
         console.log(`${LOG_PREFIX} interceptor ${result.action}${result.reason ? ` (${result.reason})` : ''}${typeof result.chars === 'number' ? ` chars=${result.chars}` : ''}`, {
             type,
             contextSize,

@@ -1,82 +1,82 @@
 // Persistenz für das Living Document.
 //
-// Strategie: Nutze das bestehende SillyTavern-Attachments-System im "chat"-Scope.
-// Pro Chat wird genau eine Datei mit Display-Name DOC_NAME abgelegt. Upsert über
-// delete+upload. Die Datei landet im User-Data-Bank-UI und ist dort manuell
-// anzeigbar/editierbar.
+// Strategie: Das Brain-XML liegt als String in den Chat-Metadaten
+// (`chat_metadata[META_KEY]`) und wird mit der Chat-Datei gespeichert.
+// Vorteile gegenüber dem früheren Attachment-Ansatz:
+//   • Atomar – kein delete+upload, bei dem ein fehlgeschlagener Upload das Brain löscht.
+//   • Branch-sicher – ein Chat-Branch bekommt eine eigene Kopie. Früher teilten sich
+//     Branches dieselbe Datei, und ein Save im Branch löschte das Brain des Originals.
+//   • Kein Vectors-Workaround nötig (Metadaten werden nicht indiziert).
 //
-// Konzept-Referenz: siehe ccs-konzept.md §7 (Speicherung).
+// Migration: Alte Brains (Attachment `ccs-living-document.xml` im Chat-Scope)
+// werden beim ersten Lesen in die Metadaten kopiert. Die alte Datei wird dabei
+// NICHT gelöscht – andere Branches können noch auf sie zeigen. Nur der
+// Attachment-Eintrag dieses Chats wird entfernt.
 
 import {
-    uploadFileAttachmentToServer,
     getFileAttachment,
     getDataBankAttachmentsForSource,
-    deleteAttachment,
 } from '../../../../chats.js';
 
 const LOG_PREFIX = '[CCS]';
-const SCOPE = 'chat';
-const DOC_NAME = 'ccs-living-document.xml';
+const META_KEY = 'ccs_brain';
+const LEGACY_SCOPE = 'chat';
+const LEGACY_DOC_NAME = 'ccs-living-document.xml';
 
-function findAttachment() {
+function getContext() {
+    return typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
+}
+
+function findLegacyAttachment() {
     try {
-        const list = getDataBankAttachmentsForSource(SCOPE, true) || [];
-        return list.find(a => a && a.name === DOC_NAME) || null;
+        const list = getDataBankAttachmentsForSource(LEGACY_SCOPE, true) || [];
+        return list.find(a => a && a.name === LEGACY_DOC_NAME) || null;
     } catch (err) {
-        console.warn(`${LOG_PREFIX} findAttachment failed:`, err);
+        console.warn(`${LOG_PREFIX} findLegacyAttachment failed:`, err);
         return null;
     }
 }
 
-/**
- * Markiert unser Attachment als "disabled" in SillyTavern's Data Bank.
- * Dadurch übergehen andere Extensions (v.a. Vectors) die Datei beim Auto-Indexing
- * und bei Kontext-Inclusion. Unser eigener Lese-Pfad `getFileAttachment(url)`
- * funktioniert unabhängig vom Disabled-Flag weiter.
- *
- * Warum direkte Manipulation der Liste statt `disableAttachment()`: die Funktion
- * ist in `chats.js` nicht exportiert (nur intern für die UI-Buttons). Die Liste
- * `extension_settings.disabled_attachments` ist aber die stabile Single-Source-of-Truth,
- * die sowohl die UI-Buttons als auch `isAttachmentDisabled()` nutzen.
- *
- * @param {string} url Attachment-URL
- */
-function markAttachmentDisabled(url) {
-    try {
-        const ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
-        if (!ctx || !ctx.extensionSettings) return;
-        if (!Array.isArray(ctx.extensionSettings.disabled_attachments)) {
-            ctx.extensionSettings.disabled_attachments = [];
-        }
-        if (!ctx.extensionSettings.disabled_attachments.includes(url)) {
-            ctx.extensionSettings.disabled_attachments.push(url);
-            if (typeof ctx.saveSettingsDebounced === 'function') {
-                ctx.saveSettingsDebounced();
-            }
-            console.log(`${LOG_PREFIX} marked attachment as disabled (excluded from Vectors etc.):`, url);
-        }
-    } catch (err) {
-        console.warn(`${LOG_PREFIX} markAttachmentDisabled failed:`, err);
-    }
+function readMeta() {
+    const value = getContext()?.chatMetadata?.[META_KEY];
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+/** Entfernt den Legacy-Attachment-Eintrag aus diesem Chat (Datei bleibt liegen). */
+function dropLegacyEntry(ctx) {
+    const meta = ctx?.chatMetadata;
+    if (!meta || !Array.isArray(meta.attachments)) return;
+    meta.attachments = meta.attachments.filter(a => !(a && a.name === LEGACY_DOC_NAME));
 }
 
 /** Prüft synchron, ob für den aktiven Chat ein Living Document existiert. */
 export function hasLivingDocument() {
-    return findAttachment() !== null;
+    return readMeta() !== null || findLegacyAttachment() !== null;
 }
 
 /**
  * Lädt das Living Document des aktiven Chats als XML-String.
+ * Migriert ein Legacy-Attachment beim ersten Zugriff in die Metadaten.
  * @returns {Promise<string|null>} XML-Inhalt oder null, wenn keins existiert.
  */
 export async function getLivingDocument() {
-    const att = findAttachment();
+    const fromMeta = readMeta();
+    if (fromMeta) return fromMeta;
+
+    const att = findLegacyAttachment();
     if (!att) return null;
+    const ctx = getContext();
+    const chatId = ctx?.chatId;
     try {
         const content = await getFileAttachment(att.url);
-        return typeof content === 'string' ? content : null;
+        if (typeof content !== 'string' || !content.trim()) return null;
+        // Chat während des Ladens gewechselt → nicht in fremde Metadaten schreiben.
+        if (getContext()?.chatId !== chatId) return content;
+        await saveLivingDocument(content, chatId);
+        console.log(`${LOG_PREFIX} migrated living document from attachment to chat metadata (${content.length} chars)`);
+        return content;
     } catch (err) {
-        console.warn(`${LOG_PREFIX} failed to load living document:`, err);
+        console.warn(`${LOG_PREFIX} failed to load legacy living document:`, err);
         return null;
     }
 }
@@ -84,45 +84,30 @@ export async function getLivingDocument() {
 /**
  * Speichert (oder ersetzt) das Living Document des aktiven Chats.
  * @param {string} xmlString – vollständiger XML-Inhalt
- * @returns {Promise<string>} die URL des neuen Attachments
+ * @param {string} [expectedChatId] – wenn gesetzt: Abbruch, falls inzwischen ein
+ *   anderer Chat aktiv ist (verhindert, dass ein laufendes Update in den falschen Chat schreibt)
  */
-export async function saveLivingDocument(xmlString) {
+export async function saveLivingDocument(xmlString, expectedChatId) {
     if (typeof xmlString !== 'string') {
         throw new TypeError('saveLivingDocument expects a string');
     }
-    // Upsert: bestehendes Attachment erst entfernen
-    const existing = findAttachment();
-    if (existing) {
-        await new Promise(resolve => {
-            try {
-                deleteAttachment(existing, SCOPE, resolve, false);
-            } catch (err) {
-                console.warn(`${LOG_PREFIX} delete-during-upsert failed:`, err);
-                resolve();
-            }
-        });
+    const ctx = getContext();
+    if (!ctx?.chatId || !ctx.chatMetadata) throw new Error('Kein Chat aktiv – Brain nicht gespeichert.');
+    if (expectedChatId !== undefined && ctx.chatId !== expectedChatId) {
+        throw new Error('Chat wurde gewechselt – Brain nicht gespeichert.');
     }
-    const file = new File([xmlString], DOC_NAME, { type: 'application/xml' });
-    const url = await uploadFileAttachmentToServer(file, SCOPE);
-    // Vectors & Co. würden unsere Datei sonst automatisch indizieren – redundant,
-    // weil wir das Brain bereits selbst per Interceptor injecten. Disabled-Flag
-    // setzen, damit der Auto-Indexer die Datei überspringt.
-    markAttachmentDisabled(url);
-    console.log(`${LOG_PREFIX} living document saved (${xmlString.length} chars, url=${url})`);
-    return url;
+    ctx.chatMetadata[META_KEY] = xmlString;
+    dropLegacyEntry(ctx);
+    await ctx.saveMetadata();
+    console.log(`${LOG_PREFIX} living document saved (${xmlString.length} chars, chat metadata)`);
 }
 
 /** Löscht das Living Document des aktiven Chats, falls vorhanden. */
 export async function clearLivingDocument() {
-    const existing = findAttachment();
-    if (!existing) return;
-    await new Promise(resolve => {
-        try {
-            deleteAttachment(existing, SCOPE, resolve, false);
-        } catch (err) {
-            console.warn(`${LOG_PREFIX} clear failed:`, err);
-            resolve();
-        }
-    });
+    const ctx = getContext();
+    if (!ctx?.chatMetadata) return;
+    delete ctx.chatMetadata[META_KEY];
+    dropLegacyEntry(ctx);
+    await ctx.saveMetadata();
     console.log(`${LOG_PREFIX} living document cleared`);
 }

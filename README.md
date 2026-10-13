@@ -1,6 +1,6 @@
 # Curated Context System (CCS)
 
-**Status:** Alpha / Phase 2 (Manueller Brain-Update-Flow + Prompt-Customizing)
+**Status:** Alpha / Phase 4 (Auto-Update, Speicherung in Chat-Metadaten, Director, Hub, Pins)
 
 SillyTavern-Extension für autor-kuratiertes Langzeitgedächtnis beim LLM-Roleplay. Der Autor kuriert ein *Living Document* (XML pro Chat); die Extension injiziert pro Turn deterministisch den relevanten Kontext.
 

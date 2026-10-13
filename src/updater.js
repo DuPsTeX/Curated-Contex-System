@@ -278,8 +278,9 @@ export function migrateLegacyBrain(xmlString) {
 
 // Caps & Konstanten laut Spec §4 / §9.4.
 const SCAN_WINDOW_MAX = 30;
-const SCAN_WINDOW_FALLBACK = 20;   // wenn kein Cursor gesetzt ist
-const UPDATE_RESPONSE_LENGTH = 6000;
+// Großzügig, weil Reasoning-Modelle (z.B. DeepSeek) ihr Nachdenken vom selben
+// Budget abziehen – bei 6000 blieb für das JSON teils nichts übrig.
+const UPDATE_RESPONSE_LENGTH = 16000;
 
 /**
  * Referenz-Kopie des Update-System-Prompts. Dient nur als Dokumentation und
@@ -435,30 +436,46 @@ export async function loadUpdateSystemPrompt() {
 }
 
 /**
- * Baut das Scan-Window laut Spec §4:
- *   • wenn `cursor` eine gültige Zahl ist → `chat.slice(cursor+1)`
- *   • sonst (NaN / fehlt) → letzte `SCAN_WINDOW_FALLBACK` Messages
+ * Plant den nächsten Scan-Block ab dem Cursor:
+ *   • Start bei `cursor + 1` (fehlt der Cursor → ab Chat-Anfang)
  *   • System-Messages (`is_system === true` – SillyTavern-Flag für
- *     impersonate/quiet/narrator) herausgefiltert
- *   • am Ende auf die letzten `SCAN_WINDOW_MAX` Messages gecappt
+ *     impersonate/quiet/narrator) werden übersprungen
+ *   • höchstens `SCAN_WINDOW_MAX` narrative Messages, ÄLTESTE zuerst. Der Rest
+ *     bleibt für den nächsten Lauf liegen – so geht nie eine Message verloren.
  *
- * @param {object} ctx – SillyTavern-Context (wir lesen `ctx.chat`)
+ * @param {Array} chat – SillyTavern-Chat-Array
  * @param {number} cursor – 0-basierter Message-Index oder NaN
- * @returns {Array} Flache Kopie der relevanten Messages
+ * @returns {{ messages: Array, lastIndex: number, remaining: number }}
+ *   lastIndex = Chat-Index, auf den der Cursor nach diesem Block gesetzt wird
+ *   remaining = narrative Messages, die danach noch offen sind
  */
+export function planScanWindow(chat, cursor) {
+    const list = Array.isArray(chat) ? chat : [];
+    const start = Number.isFinite(cursor) && cursor >= -1 ? cursor + 1 : 0;
+
+    const messages = [];
+    let lastIndex = Math.max(-1, start - 1);
+    let remaining = 0;
+    for (let i = start; i < list.length; i++) {
+        const m = list[i];
+        if (!m || m.is_system === true) {
+            // System-Message direkt hinter dem Block gehört noch zum Block.
+            if (messages.length < SCAN_WINDOW_MAX) lastIndex = i;
+            continue;
+        }
+        if (messages.length < SCAN_WINDOW_MAX) {
+            messages.push(m);
+            lastIndex = i;
+        } else {
+            remaining++;
+        }
+    }
+    return { messages, lastIndex, remaining };
+}
+
+/** Kompatibilitäts-Wrapper: nur die Messages des nächsten Blocks. */
 export function buildScanWindow(ctx, cursor) {
-    if (!ctx || !Array.isArray(ctx.chat)) return [];
-    const chat = ctx.chat;
-
-    const usingCursor = Number.isFinite(cursor) && cursor >= -1;
-    const slice = usingCursor ? chat.slice(cursor + 1) : chat.slice(-SCAN_WINDOW_FALLBACK);
-
-    // is_system filtert unsere eigenen stillen Calls (Quiet/Impersonate) ebenso aus
-    // wie Narrator/Toast-artige Einträge. Narrative User/AI-Messages bleiben übrig.
-    const filtered = slice.filter(m => m && m.is_system !== true);
-
-    // Letzte SCAN_WINDOW_MAX behalten – hintere Seite ist immer relevanter als vordere.
-    return filtered.slice(-SCAN_WINDOW_MAX);
+    return planScanWindow(ctx?.chat, cursor).messages;
 }
 
 /**
@@ -510,7 +527,7 @@ export function extractJson(raw) {
  * Referenzen sieht. `langOverride` kommt üblicherweise aus dem
  * `@lang`-Attribut des Brains und dient als expliziter Hinweis.
  */
-function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride, capped }) {
+function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride }) {
     const lines = [];
     lines.push('====== CCS ARCHIVIST MODE – UPDATE ======', '',
         'YOU ARE AN ARCHIVIST, NOT A ROLEPLAYER. Analyze the data below and output structured JSON.',
@@ -531,10 +548,7 @@ function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverrid
     lines.push('====== END OF SOURCE DATA ======', '');
     lines.push('<task>', 'ARCHIVIST MODE – produce JSON OUTPUT ONLY:');
     lines.push('Propose structured brain updates based on what happened in the chat since the last update. Follow all rules from the system prompt above. Output ONE JSON object matching the schema. No prose, no markdown fences.');
-    if (capped) {
-        lines.push('');
-        lines.push(`Note: Only the most recent ${SCAN_WINDOW_MAX} messages are shown; older context is already in the brain.`);
-    }
+    lines.push('Keep any internal deliberation brief – decide quickly and spend your output on the JSON.');
     lines.push('START JSON NOW:', '</task>');
     return lines.join('\n');
 }
@@ -952,12 +966,14 @@ export function validateProposals(json, migratedBrainXml) {
  * @param {object} opts
  * @param {object} opts.ctx – SillyTavern getContext()
  * @param {object} [opts.settings] – CCS-Settings (für historyEnabled etc.)
+ * @param {number} [opts.holdBack=0] – so viele jüngste Messages NICHT analysieren
+ *   (Auto-Update: die letzte Antwort kann noch geswiped/editiert werden)
  *
  * Der System-Prompt wird aus `prompts/update-system.txt` gefetcht (oder aus dem
  * in-Code-Fallback, falls die Datei fehlt). Es gibt KEIN `settings.updateSystemPrompt`
  * mehr – Anpassungen landen direkt in der Datei und wandern per git push/pull.
  */
-export async function runUpdate({ ctx, settings }) {
+export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     if (!ctx) throw new Error('runUpdate: ctx required');
 
     const originalXml = await storage.getLivingDocument();
@@ -974,9 +990,11 @@ export async function runUpdate({ ctx, settings }) {
     const cursor = cursorAttr == null || cursorAttr === '' ? NaN : parseInt(cursorAttr, 10);
     const lang = (root && root.getAttribute('lang')) || '';
 
-    const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
-    const cursorIndex = Math.max(0, chat.length - 1);
-    const scanWindow = buildScanWindow(ctx, cursor);
+    const chatId = ctx.chatId;
+    const fullChat = Array.isArray(ctx.chat) ? ctx.chat : [];
+    const chat = holdBack > 0 ? fullChat.slice(0, Math.max(0, fullChat.length - holdBack)) : fullChat;
+    const { messages: scanWindow, lastIndex, remaining } = planScanWindow(chat, cursor);
+    const cursorIndex = Math.max(0, lastIndex);
 
     if (scanWindow.length === 0) {
         console.log(`${LOG_PREFIX} runUpdate: scan window empty (cursor=${cursorAttr ?? 'none'}, chat.length=${chat.length})`);
@@ -987,17 +1005,13 @@ export async function runUpdate({ ctx, settings }) {
             reasoning: '',
             migratedBrainXml,
             cursorIndex,
+            baseCursor: cursor,
+            chatId,
+            remaining: 0,
             scanWindow: [],
             scanWindowEmpty: true,
         };
     }
-
-    // Determine whether the raw (unfiltered) slice would have exceeded the cap –
-    // dann setzen wir den expliziten "Note" in den userPrompt.
-    const rawSliceLength = Number.isFinite(cursor) && cursor >= -1
-        ? Math.max(0, chat.length - (cursor + 1))
-        : Math.min(SCAN_WINDOW_FALLBACK, chat.length);
-    const capped = rawSliceLength > SCAN_WINDOW_MAX;
 
     const systemPrompt = await loadUpdateSystemPrompt();
     const userPrompt = buildUpdateUserPrompt({
@@ -1005,21 +1019,28 @@ export async function runUpdate({ ctx, settings }) {
         brainXml: migratedBrainXml,
         scanWindow,
         langOverride: lang,
-        capped,
     });
 
-    console.log(`${LOG_PREFIX} runUpdate: scanning ${scanWindow.length} messages (cursor=${cursorAttr ?? 'none'}, capped=${capped})`);
+    console.log(`${LOG_PREFIX} runUpdate: scanning ${scanWindow.length} messages (cursor=${cursorAttr ?? 'none'} → ${cursorIndex}, remaining=${remaining})`);
 
     if (typeof ctx.generateRaw !== 'function') {
         throw new Error('runUpdate: ctx.generateRaw not available');
     }
 
-    const raw = await ctx.generateRaw({
-        prompt: userPrompt,
-        systemPrompt: '',
-        instructOverride: true,
-        responseLength: UPDATE_RESPONSE_LENGTH,
-    });
+    let raw;
+    try {
+        raw = await ctx.generateRaw({
+            prompt: userPrompt,
+            systemPrompt: '',
+            instructOverride: true,
+            responseLength: UPDATE_RESPONSE_LENGTH,
+        });
+    } catch (e) {
+        if (/no message generated/i.test(e?.message || '')) {
+            throw new Error('Das Modell hat keine Antwort geliefert. Bei Reasoning-Modellen verbraucht das Nachdenken oft das ganze Antwort-Budget – ggf. Reasoning-Effort senken oder ein Modell ohne Reasoning nutzen.');
+        }
+        throw e;
+    }
 
     const jsonText = extractJson(raw);
     let json;
@@ -1051,6 +1072,9 @@ export async function runUpdate({ ctx, settings }) {
         ...result,
         migratedBrainXml,
         cursorIndex,
+        baseCursor: cursor,
+        chatId,
+        remaining,
         scanWindow,
         scanWindowEmpty: false,
         raw,
@@ -1362,7 +1386,7 @@ function sortProposalsByCategory(approved) {
  * @param {object} [settings] – aktuell ungenutzt; Hook für Phase-3-Flags
  * @returns {Promise<{ applied: number, failed: Array<{proposal:object, error:string}> }>}
  */
-export async function applyProposals(approved, migratedBrainXml, cursorIndex, settings) {
+export async function applyProposals(approved, migratedBrainXml, cursorIndex, settings, expectedChatId) {
     if (!Array.isArray(approved)) throw new TypeError('applyProposals: approved must be an array');
     if (typeof migratedBrainXml !== 'string' || !migratedBrainXml) {
         throw new TypeError('applyProposals: migratedBrainXml must be a non-empty string');
@@ -1412,7 +1436,7 @@ export async function applyProposals(approved, migratedBrainXml, cursorIndex, se
         throw new Error(`Patched brain invalid: ${v.error}`);
     }
 
-    await storage.saveLivingDocument(newXml);
+    await storage.saveLivingDocument(newXml, expectedChatId);
     console.log(`${LOG_PREFIX} applyProposals: saved (applied=${results.applied}, failed=${results.failed.length}, cursor=${cursorIndex})`);
     return results;
 }

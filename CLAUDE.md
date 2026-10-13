@@ -155,3 +155,12 @@ Zusätzlich zu Phase 1 verfügbar über `window.ccs`:
 - **Fallbacks überall** (ab Schritt 8): Extension darf SillyTavern nie blocken.
 - **Console-Logs:** alle mit Präfix `[CCS]`.
 - **Sprache:** UI-Strings Deutsch (Default), Code-Kommentare Deutsch ok.
+
+## Phase 4: Robustheit + Auto-Update
+
+- **Speicherung in `chat_metadata.ccs_brain`** statt Attachment (`src/storage.js`). Atomar, branch-sicher (Branch = eigene Kopie). Legacy-Attachments werden beim ersten Lesen migriert; die alte Datei wird nicht gelöscht (andere Branches können darauf zeigen), nur der Eintrag des aktuellen Chats. `saveLivingDocument(xml, expectedChatId)` bricht ab, wenn inzwischen ein anderer Chat aktiv ist.
+- **Update in Blöcken:** `planScanWindow(chat, cursor)` liefert die ältesten max. 30 narrativen Messages ab dem Cursor + `lastIndex` + `remaining`. Der Cursor springt nur bis zum Blockende – vorher gingen bei >30 neuen Messages die älteren verloren. Ohne Cursor startet der Scan bei Message 0.
+- **Interceptor nutzt das `chat`-Argument** (nicht `ctx.chat`): beim Swipe fehlt dort die ersetzte Nachricht. Achtung: ST übergibt **flache Kopien** der Messages (`{...chatItem, mes: regexed}`), Objekt-Identität mit `ctx.chat` gibt es nicht. `trimChatToMax` ordnet deshalb per Position (gleicher Filter wie ST) + `send_date` zu.
+- **Max Chat-Nachrichten** kappt nur Messages mit Index <= Cursor (schon im Brain); ohne Cursor wird nichts gekappt.
+- **Auto-Update** (`autoUpdateEnabled`, `autoUpdateEvery`, `autoUpdateAccept`): nach `MESSAGE_RECEIVED` (entprellt) wird geprüft, ob genug unanalysierte Messages da sind; die 2 jüngsten werden zurückgehalten (Swipe/Edit). Ergebnis landet als `pendingUpdate` (Badge + Toast) oder wird bei „ohne Rückfrage“ über die unsichtbar gerenderte Popup-Logik (gleiche IDs/Validierung) direkt übernommen. Apply läuft immer auf dem **aktuellen** Brain (Pins/Edits zwischendurch bleiben erhalten); hat sich der Cursor verändert, wird das Ergebnis verworfen.
+- **Reasoning-Modelle:** Update-Budget 16000 Tokens – DeepSeek hat 6000 komplett fürs Nachdenken verbraucht (`No message generated`).

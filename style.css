@@ -27,6 +27,7 @@
    Director-Agent Section (Phase 3)
    ========================================================================== */
 
+.ccs-auto-section,
 .ccs-director-section {
     margin: 0.75em 0;
     padding: 0.5em 0.75em;
@@ -837,4 +838,18 @@
     color: var(--grey80, #ddd);
     line-height: 1.5;
     word-break: break-word;
+}
+
+.ccs-pending-badge {
+    margin: 0.4em 0;
+    padding: 0.35em 0.6em;
+    border-radius: 5px;
+    background: rgba(255, 196, 0, 0.15);
+    border: 1px solid rgba(255, 196, 0, 0.45);
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.ccs-pending-badge:hover {
+    background: rgba(255, 196, 0, 0.25);
 }

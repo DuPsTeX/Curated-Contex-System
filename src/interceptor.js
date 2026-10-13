@@ -290,6 +290,59 @@ export function trimToBudget(filteredXml, tokenBudget) {
 }
 
 /**
+ * Liest den Update-Cursor (`last_analyzed_msg_index`) aus dem Brain-Root.
+ * @param {string} brainXml
+ * @returns {number} Cursor oder NaN, wenn keiner gesetzt ist
+ */
+export function readCursor(brainXml) {
+    const m = /<brain\b[^>]*\blast_analyzed_msg_index="(-?\d+)"/.exec(brainXml || '');
+    return m ? parseInt(m[1], 10) : NaN;
+}
+
+/**
+ * Kappt den Generierungs-Chat auf die letzten `max` narrativen Nachrichten –
+ * aber NUR Nachrichten, die schon ins Brain übernommen wurden (Index <= Cursor).
+ * Alles danach bleibt drin, sonst würde die KI es bis zum nächsten Update vergessen.
+ * Mutiert `chat` in place (das ist die Kopie, die ST an den Interceptor gibt).
+ *
+ * Zuordnung zum Original-Index: ST baut den Generierungs-Chat als
+ * `chat.filter(!is_system || tool_invocations)` und macht daraus flache Kopien –
+ * Objekt-Identität hilft also nicht. Wir rechnen dieselbe Filterung nach und
+ * gleichen per Position ab, abgesichert über `send_date`. Passt etwas nicht,
+ * bleibt die Nachricht drin (lieber zu viel Kontext als Gedächtnisverlust).
+ *
+ * @param {Array} chat – Generierungs-Chat (Interceptor-Argument)
+ * @param {Array} fullChat – ctx.chat, um den Original-Index zu bestimmen
+ * @param {number} max – max. narrative Nachrichten (0 = aus)
+ * @param {number} cursor – last_analyzed_msg_index
+ * @returns {number} Anzahl entfernter Nachrichten
+ */
+export function trimChatToMax(chat, fullChat, max, cursor) {
+    if (!(max > 0) || !Array.isArray(chat) || !Number.isFinite(cursor)) return 0;
+    const origIndex = [];
+    (Array.isArray(fullChat) ? fullChat : []).forEach((m, i) => {
+        if (m && (!m.is_system || Array.isArray(m.extra?.tool_invocations))) origIndex.push(i);
+    });
+    const indexAt = (pos) => {
+        const i = origIndex[pos];
+        return i !== undefined && fullChat[i].send_date === chat[pos].send_date ? i : undefined;
+    };
+
+    let kept = 0;
+    let removed = 0;
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!m || m.is_system === true || m.injected) continue;
+        if (kept < max) { kept++; continue; }
+        const idx = indexAt(i);
+        if (idx === undefined || idx > cursor) continue;
+        chat.splice(i, 1);
+        removed++;
+    }
+    return removed;
+}
+
+/**
  * Leert den Injection-Slot. Wichtig bei Chat-Wechsel / Brain gelöscht / Extension aus,
  * damit keine Leiche vom vorigen Zustand mitgeschleppt wird.
  * @param {object} ctx – SillyTavern-Context
@@ -336,9 +389,11 @@ export function setDirectorSlot(ctx, text) {
  * @param {object} params.ctx – SillyTavern-Context
  * @param {object} params.settings – CCS-Settings-Objekt
  * @param {string} params.type – Generation-Type ('normal', 'quiet', 'regenerate', ...)
+ * @param {Array} [params.chat] – Generierungs-Chat aus dem Interceptor (bei Swipe ohne
+ *   die ersetzte Nachricht). Fallback: ctx.chat
  * @returns {Promise<{ action: 'skip'|'cleared'|'injected', reason?: string, chars?: number }>}
  */
-export async function runAlwaysCore({ ctx, settings, type }) {
+export async function runAlwaysCore({ ctx, settings, type, chat: genChat }) {
     // Immer zuerst clearen – "clean-slate"-Invariante.
     // Auch wenn wir gleich wieder setzen: der Clear garantiert, dass kein Zombie
     // aus einem früheren Call übrigbleibt.
@@ -370,10 +425,19 @@ export async function runAlwaysCore({ ctx, settings, type }) {
             return { action: 'cleared', reason: 'no-brain' };
         }
 
+        // Generierungs-Chat statt ctx.chat: beim Swipe fehlt dort die Nachricht,
+        // die gerade ersetzt wird – sie darf weder Filter noch Director beeinflussen.
+        const chat = Array.isArray(genChat) ? genChat : (Array.isArray(ctx.chat) ? ctx.chat : []);
+
+        // Chat-History auf max N Nachrichten kappen – nur, was schon im Brain steht.
+        const removed = trimChatToMax(chat, ctx.chat, settings.maxChatMessages, readCursor(brain));
+        if (removed > 0) {
+            console.log(`${LOG_PREFIX} interceptor: trimmed ${removed} already-archived messages (max=${settings.maxChatMessages})`);
+        }
+
         // Letzte 2 narrative Messages für Name-Matching extrahieren
         let recentText = '';
         try {
-            const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
             const narrative = chat.filter(m => m && m.is_system !== true);
             const lastTwo = narrative.slice(-2);
             recentText = lastTwo.map(m => String(m.mes ?? '')).join(' ');
@@ -388,7 +452,6 @@ export async function runAlwaysCore({ ctx, settings, type }) {
         // der die Hauptgenerierung führt. Fail-soft – blockiert nie die Injektion.
         if (settings.directorEnabled) {
             try {
-                const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
                 const narrative = chat.filter(m => m && m.is_system !== true);
                 const last3 = narrative.slice(-3);
                 if (last3.length > 0 && filtered) {

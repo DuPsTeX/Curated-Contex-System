@@ -6,7 +6,7 @@
         </div>
         <div class="inline-drawer-content">
             <small class="ccs-description">
-                Autor-kuratiertes Langzeitgedächtnis für Roleplay-Chats. Phase 1 – Gerüst.
+                Autor-kuratiertes Langzeitgedächtnis für Roleplay-Chats.
             </small>
 
             <label class="checkbox_label" for="ccs-enabled">
@@ -41,6 +41,30 @@
                 </div>
             </div>
 
+            <div class="ccs-auto-section">
+                <div class="ccs-director-header">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Auto-Update</span>
+                </div>
+
+                <label class="checkbox_label" for="ccs-auto-update-enabled" title="Analysiert neue Nachrichten automatisch im Hintergrund, sobald genug zusammengekommen sind. Die zwei jüngsten Nachrichten werden zurückgehalten, weil sie noch geswiped oder bearbeitet werden können.">
+                    <input id="ccs-auto-update-enabled" type="checkbox" />
+                    <span>Auto-Update aktivieren</span>
+                </label>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-auto-update-every"><strong>Alle</strong></label>
+                    <input id="ccs-auto-update-every" type="number" min="2" step="1" value="10" class="text_pole" style="width:70px" />
+                    <span>neuen Nachrichten</span>
+                </div>
+
+                <label class="checkbox_label" for="ccs-auto-update-accept" title="Vorschläge werden ohne Review-Popup übernommen. Vorschläge mit fehlenden Pflichtfeldern landen trotzdem zur Freigabe.">
+                    <input id="ccs-auto-update-accept" type="checkbox" />
+                    <span>Ohne Rückfrage übernehmen</span>
+                </label>
+                <small>Ohne diese Option werden die Vorschläge gesammelt und per Hinweis zur Freigabe angeboten.</small>
+            </div>
+
             <div class="ccs-pins-section">
                 <div class="ccs-pins-header">
                     <i class="fa-solid fa-thumbtack"></i>
@@ -64,7 +88,7 @@
                 <label for="ccs-max-chat-messages"><strong>Max Chat-Nachrichten:</strong></label>
                 <input id="ccs-max-chat-messages" type="number" min="0" step="5" value="0" class="text_pole" style="width:100px" />
                 <span>Nachrichten</span>
-                <small>0 = unbegrenzt. Kappt die Chat-History auf die letzten N Nachrichten. Ältere ersetzt CCS-History.</small>
+                <small>0 = unbegrenzt. Kappt die Chat-History auf die letzten N Nachrichten. Gekappt werden nur Nachrichten, die per Update schon ins Brain übernommen wurden.</small>
             </div>
 
             <div class="ccs-status-line">
@@ -74,6 +98,7 @@
             <div class="ccs-brain-row">
                 <span id="ccs-brain-state" class="ccs-brain-state">Brain: unbekannt</span>
             </div>
+            <div id="ccs-pending-badge" class="ccs-pending-badge" style="display:none" title="Gesammelte Auto-Update-Vorschläge prüfen"></div>
 
             <div class="ccs-actions">
                 <button id="ccs-init-btn" class="menu_button" type="button" title="Initialisiert das Brain aus Character Card + Lorebooks.">
