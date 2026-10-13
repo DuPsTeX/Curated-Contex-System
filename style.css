@@ -914,3 +914,47 @@
 .ccs-version-row {
     margin: 0.2em 0;
 }
+
+/* Kontinuitäts-Wächter */
+.ccs-guard-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    margin: 2px 0 4px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.75em;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.ccs-guard-badge--checking {
+    cursor: default;
+    opacity: 0.75;
+    border-color: var(--grey30, #555);
+}
+
+.ccs-guard-badge--fixed {
+    background: rgba(76, 175, 80, 0.15);
+    border-color: rgba(76, 175, 80, 0.5);
+}
+
+.ccs-guard-badge--issue {
+    background: rgba(231, 76, 60, 0.15);
+    border-color: rgba(231, 76, 60, 0.5);
+}
+
+.ccs-guard-badge--soft {
+    background: rgba(241, 196, 15, 0.12);
+    border-color: rgba(241, 196, 15, 0.45);
+}
+
+body.ccs-guard-holding #chat .last_mes[is_user="false"] .mes_text {
+    filter: blur(6px);
+    transition: filter 0.2s;
+    user-select: none;
+}
+
+.ccs-guard-popup {
+    text-align: left;
+}

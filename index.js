@@ -11,6 +11,7 @@ import * as render from './src/render.js';
 import * as cursor from './src/cursor.js';
 import * as compactor from './src/compactor.js';
 import * as status from './src/status.js';
+import * as guard from './src/guard.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -56,6 +57,8 @@ const DEFAULT_SETTINGS = {
     relevanceWindow: 6,
     statusSync: true,
     statusStripOld: true,
+    guardMode: 'off',
+    guardHold: false,
 };
 
 function getContext() {
@@ -1059,6 +1062,23 @@ function bindUI() {
         });
     }
 
+    const $guardMode = $('#ccs-guard-mode');
+    $guardMode.val(settings.guardMode || 'off');
+    $guardMode.on('change', function () {
+        const s = getSettings();
+        s.guardMode = String($(this).val() || 'off');
+        saveSettings();
+        console.log(`${LOG_PREFIX} guardMode set to ${s.guardMode}`);
+    });
+    const $guardHold = $('#ccs-guard-hold');
+    $guardHold.prop('checked', settings.guardHold === true);
+    $guardHold.on('change', function () {
+        const s = getSettings();
+        s.guardHold = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} guardHold set to ${s.guardHold}`);
+    });
+
     bindNumber('#ccs-state-depth', 'stateDepth', 0);
     bindNumber('#ccs-relevance-window', 'relevanceWindow', 1);
 
@@ -1156,6 +1176,7 @@ function onChatChanged() {
     updatePendingUI();
     refreshPinsUI();
     hub.refresh();
+    setTimeout(() => guard.renderAllBadges(), 300);
 }
 
 function addWandButtons() {
@@ -1198,6 +1219,7 @@ async function init() {
     }
 
     getSettings();
+    guard.init({ getSettings });
 
     await mountSettingsPanel();
 
@@ -1254,6 +1276,15 @@ async function init() {
         eventSource.on(eventTypes.CHAT_CHANGED, onChatChanged);
         // Auto-Update: nach jeder fertigen KI-Antwort prüfen, ob genug Neues da ist.
         if (eventTypes.MESSAGE_RECEIVED) eventSource.on(eventTypes.MESSAGE_RECEIVED, scheduleAutoUpdate);
+        // Kontinuitäts-Wächter
+        if (eventTypes.GENERATION_STARTED) eventSource.on(eventTypes.GENERATION_STARTED, guard.onGenerationStarted);
+        for (const ev of ['GENERATION_ENDED', 'GENERATION_STOPPED']) {
+            if (eventTypes[ev]) eventSource.on(eventTypes[ev], guard.onGenerationFinished);
+        }
+        if (eventTypes.CHARACTER_MESSAGE_RENDERED) eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, guard.onMessageRendered);
+        // ST zeichnet die Nachricht beim Swipen neu → Markierung des gewählten Swipes zeigen
+        if (eventTypes.MESSAGE_SWIPED) eventSource.on(eventTypes.MESSAGE_SWIPED, (id) => setTimeout(() => guard.renderBadge(Number(id)), 100));
+
         // Status-Sync: neue Antwort, anderer Swipe, bearbeitete Nachricht.
         for (const ev of ['MESSAGE_RECEIVED', 'MESSAGE_SWIPED', 'MESSAGE_EDITED']) {
             if (eventTypes[ev]) eventSource.on(eventTypes[ev], scheduleStatusSync);
@@ -1273,12 +1304,16 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status, guard };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {
         const ctx = getContext();
         const settings = getSettings();
+
+        // Läuft noch der Wächter für die vorige Antwort, auf ihn warten – sonst würde
+        // die neue Antwort auf der unkorrigierten Fassung aufbauen.
+        if (!type || type === 'normal') await guard.whenIdle();
 
         // Kappen auf maxChatMessages passiert in runAlwaysCore (braucht den Brain-Cursor).
         const result = await interceptor.runAlwaysCore({ ctx, settings, type, chat });

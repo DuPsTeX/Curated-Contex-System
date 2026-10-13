@@ -78,6 +78,28 @@
 
             <div class="ccs-auto-section">
                 <div class="ccs-director-header">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>Kontinuitäts-Wächter</span>
+                </div>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-guard-mode"><strong>Modus</strong></label>
+                    <select id="ccs-guard-mode" class="text_pole">
+                        <option value="off">Aus</option>
+                        <option value="mark">Nur markieren</option>
+                        <option value="fix">Automatisch korrigieren</option>
+                    </select>
+                    <small>Prüft jede neue Antwort gegen das Brain (tot/anwesend, Ort, Verletzungen, Inventar, Wissen). „Korrigieren“ lässt nur die fehlerhaften Stellen umschreiben – das Original bleibt als Swipe erhalten. Kostet einen Prüf-Aufruf pro Antwort, eine Korrektur nur bei Treffern.</small>
+                </div>
+
+                <label class="checkbox_label" for="ccs-guard-hold" title="Die neue Antwort bleibt unscharf, bis die Prüfung (und ggf. Korrektur) fertig ist – kein sichtbares Umspringen des Textes, dafür etwas Wartezeit.">
+                    <input id="ccs-guard-hold" type="checkbox" />
+                    <span>Antwort erst nach der Prüfung zeigen</span>
+                </label>
+            </div>
+
+            <div class="ccs-auto-section">
+                <div class="ccs-director-header">
                     <i class="fa-solid fa-rotate"></i>
                     <span>Auto-Update</span>
                 </div>

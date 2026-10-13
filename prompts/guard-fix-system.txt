@@ -1,0 +1,1 @@
+You are revising your own roleplay reply to fix continuity errors. Change ONLY what is needed to fix the listed contradictions, with the smallest possible edit. Keep everything else exactly as it is: wording, style, formatting (markdown, asterisks, quotes), paragraphs, length and perspective. Do not add any commentary. Output ONLY the full revised reply.

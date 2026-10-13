@@ -188,6 +188,29 @@ export function stripStatus(text) {
     return [...lines.slice(0, from), ...lines.slice(range.last + 1)].join('\n').trim();
 }
 
+/**
+ * Teilt eine Nachricht in Statusteil (Kopfzeilen + Fenster) und Erzähltext.
+ * Ohne Statusfenster ist `head` leer. `join(body)` setzt beides wieder zusammen
+ * (Statusteil oben oder unten – je nachdem, wo er stand).
+ * @param {string} text
+ * @returns {{ head: string, body: string, join: (body: string) => string }}
+ */
+export function splitStatus(text) {
+    if (typeof text !== 'string' || !text) return { head: '', body: text || '', join: b => b };
+    const lines = text.split('\n');
+    const range = statusRange(lines);
+    if (!range) return { head: '', body: text, join: b => b };
+    const header = headerLines(lines, range.first);
+    const from = header.length ? header[0].index : range.first;
+    const head = lines.slice(from, range.last + 1).join('\n');
+    const headFirst = lines.slice(0, from).every(l => !l.trim());
+    return {
+        head,
+        body: [...lines.slice(0, from), ...lines.slice(range.last + 1)].join('\n').trim(),
+        join: b => (headFirst ? `${head}\n\n${b.trim()}` : `${b.trim()}\n\n${head}`),
+    };
+}
+
 /** Kompakter Werte-Text für <stats>. */
 function statsText(d) {
     const parts = [];

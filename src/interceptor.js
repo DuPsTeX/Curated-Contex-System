@@ -37,7 +37,7 @@ Curated canon of this story (world, characters, places, relationships, key momen
 const CORE_FOOTER = `</story_canon>`;
 
 const STATE_HEADER = `<current_situation>
-Where the story stands right now. Keep your reply consistent with it.`;
+Where the story stands right now. These are hard facts – do not contradict them: who is present, location and time, injuries and conditions, inventory and equipment, and what each character can know.`;
 const STATE_FOOTER = `</current_situation>`;
 
 /** Wickelt den Kanon-Text in den Envelope. Pure function. */
