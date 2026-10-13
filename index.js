@@ -12,6 +12,7 @@ import * as cursor from './src/cursor.js';
 import * as compactor from './src/compactor.js';
 import * as status from './src/status.js';
 import * as guard from './src/guard.js';
+import * as semantic from './src/semantic.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -59,6 +60,9 @@ const DEFAULT_SETTINGS = {
     statusStripOld: true,
     guardMode: 'off',
     guardHold: false,
+    threadNudge: true,
+    threadAge: 40,
+    semanticEnabled: false,
 };
 
 function getContext() {
@@ -506,7 +510,7 @@ async function applyUpdateResult(result, approved) {
         throw new Error('Brain wurde inzwischen anderweitig aktualisiert – Vorschläge verworfen.');
     }
     const { xml: base } = updater.migrateLegacyBrain(current);
-    return updater.applyProposals(approved, base, result.cursorIndex, getSettings(), result.chatId);
+    return updater.applyProposals(approved, base, result.cursorIndex, getSettings(), result.chatId, { threadTouches: result.threadTouches || [] });
 }
 
 function toastApplySummary(applyResult) {
@@ -922,6 +926,7 @@ async function onDeleteClicked() {
     if (res !== ctx.POPUP_RESULT.AFFIRMATIVE) return;
     try {
         await storage.clearLivingDocument();
+        if (getSettings().semanticEnabled) semantic.purge(ctx.chatId).catch(() => { /* Index wird beim nächsten Brain neu gebaut */ });
         pendingUpdate = null;
         updatePendingUI();
         // Auch den Injection-Slot leeren, damit bis zum nächsten Gen-Event
@@ -1050,7 +1055,7 @@ function bindUI() {
             console.log(`${LOG_PREFIX} ${key} set to ${s[key]}`);
         });
     };
-    for (const [selector, key] of [['#ccs-status-sync', 'statusSync'], ['#ccs-status-strip', 'statusStripOld']]) {
+    for (const [selector, key] of [['#ccs-status-sync', 'statusSync'], ['#ccs-status-strip', 'statusStripOld'], ['#ccs-thread-nudge', 'threadNudge'], ['#ccs-semantic', 'semanticEnabled']]) {
         const $el = $(selector);
         $el.prop('checked', settings[key] !== false);
         $el.on('change', function () {
@@ -1081,6 +1086,7 @@ function bindUI() {
 
     bindNumber('#ccs-state-depth', 'stateDepth', 0);
     bindNumber('#ccs-relevance-window', 'relevanceWindow', 1);
+    bindNumber('#ccs-thread-age', 'threadAge', 5);
 
     $('#ccs-init-btn').on('click', onInitializeClicked);
     $('#ccs-view-btn').on('click', onViewClicked);
@@ -1304,7 +1310,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status, guard };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status, guard, semantic };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {

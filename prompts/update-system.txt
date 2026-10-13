@@ -19,7 +19,8 @@ explanation outside the JSON.
   "arc_updates":             [ { id, change_type, new_value, reason? } ],
   "scene_update":            { location, present[], time?, mood?, active_tension? } | null,
   "new_world_rules":         [ "string", … ],
-  "new_history_entries":     [ { summary, scene?, tags?[], key_outcome?, involved?[] } ]
+  "new_history_entries":     [ { summary, scene?, tags?[], key_outcome?, involved?[] } ],
+  "threads_advanced":        [ "exact open thread text", … ]
 }
 Any array may be []. scene_update may be null. reasoning MUST be present.
 - new_history_entries.summary is a 1-3 sentence summary of a concluded scene or narrative block.
@@ -74,6 +75,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
     alias. Aliases are used to recognize who is being talked about.
 14. Containers with older_entries_omitted="N" show only the most recent entries;
     the omitted ones are already archived. Do not re-create them.
+15. threads_advanced: list the open threads (copy the EXACT <thread> text from
+    <brain_current>) that were meaningfully advanced, revisited or hinted at in
+    the scan window. Used to remind the story of threads that lie dormant.
 
 # Few-Shot example
 <brain_current>

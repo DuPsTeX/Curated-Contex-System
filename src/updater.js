@@ -1013,11 +1013,21 @@ export function validateProposals(json, migratedBrainXml) {
         }
     }
 
+    // --- threads_advanced: keine Karte, nur Zeitstempel "zuletzt aufgegriffen" ---
+    const openThreads = [...doc.querySelectorAll('arcs > arc > open_threads > thread')].map(t => t.textContent.trim());
+    const threadTouches = (Array.isArray(json.threads_advanced) ? json.threads_advanced : [])
+        .map(t => openThreads.find(o => normThread(o) === normThread(t)))
+        .filter(Boolean);
+
     if (dropped.length > 0) {
         console.warn(`${LOG_PREFIX} validateProposals dropped ${dropped.length} items:`, dropped);
     }
 
-    return { proposals, dropped, shape_ok: true, reasoning };
+    return { proposals, dropped, shape_ok: true, reasoning, threadTouches };
+}
+
+function normThread(s) {
+    return String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
@@ -1357,9 +1367,13 @@ function applyArcUpdate(doc, p) {
             threads = doc.createElement('open_threads');
             arc.appendChild(threads);
         }
+        // Zeitstempel (since/touched) von Fäden behalten, deren Text gleich bleibt
+        const stamps = new Map([...threads.children].map(t => [normThread(t.textContent), t]));
         clearChildren(threads);
         for (const t of p.new_value) {
-            appendTextChild(threads, 'thread', t, doc);
+            const el = appendTextChild(threads, 'thread', t, doc);
+            const old = stamps.get(normThread(t));
+            for (const a of ['since', 'touched']) if (old?.hasAttribute(a)) el.setAttribute(a, old.getAttribute(a));
         }
     } else if (p.change_type === 'growth_opportunities') {
         let go = arc.querySelector(':scope > growth_opportunities');
@@ -1375,7 +1389,9 @@ function applyArcUpdate(doc, p) {
 
 function applySceneUpdate(doc, p) {
     const scene = ensureContainer(doc, 'scene');
+    const chapter = scene.querySelector(':scope > chapter');
     clearChildren(scene);
+    if (chapter) scene.appendChild(chapter);
     appendTextChild(scene, 'location', p.location, doc);
     const present = doc.createElement('present');
     for (const name of (p.present || [])) {
@@ -1481,7 +1497,7 @@ function sortProposalsByCategory(approved) {
  * @param {object} [settings] – aktuell ungenutzt; Hook für Phase-3-Flags
  * @returns {Promise<{ applied: number, failed: Array<{proposal:object, error:string}> }>}
  */
-export async function applyProposals(approved, migratedBrainXml, cursorIndex, settings, expectedChatId) {
+export async function applyProposals(approved, migratedBrainXml, cursorIndex, settings, expectedChatId, { threadTouches = [] } = {}) {
     if (!Array.isArray(approved)) throw new TypeError('applyProposals: approved must be an array');
     if (typeof migratedBrainXml !== 'string' || !migratedBrainXml) {
         throw new TypeError('applyProposals: migratedBrainXml must be a non-empty string');
@@ -1522,6 +1538,13 @@ export async function applyProposals(approved, migratedBrainXml, cursorIndex, se
     }
 
     // Cursor setzen + Post-Validate
+    // Fäden-Register: neue Fäden bekommen "seit", vorangebrachte "zuletzt aufgegriffen".
+    const touched = new Set(threadTouches.map(normThread));
+    for (const t of doc.querySelectorAll('arcs > arc > open_threads > thread')) {
+        if (!t.hasAttribute('since')) t.setAttribute('since', String(cursorIndex));
+        if (touched.has(normThread(t.textContent))) t.setAttribute('touched', String(cursorIndex));
+    }
+
     writeCursor(doc.documentElement, cursorIndex, typeof SillyTavern !== 'undefined' ? SillyTavern.getContext()?.chat : undefined);
     const newXml = prettyPrintXml(new XMLSerializer().serializeToString(doc));
 

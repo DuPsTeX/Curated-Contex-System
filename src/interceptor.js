@@ -13,6 +13,7 @@ import * as director from './director.js';
 import { selectRelevant, renderCompact } from './render.js';
 import { readCursor, resolveCursor } from './cursor.js';
 import { stripStatus } from './status.js';
+import * as semantic from './semantic.js';
 
 export { readCursor };
 
@@ -40,6 +41,9 @@ const STATE_HEADER = `<current_situation>
 Where the story stands right now. These are hard facts – do not contradict them: who is present, location and time, injuries and conditions, inventory and equipment, and what each character can know.`;
 const STATE_FOOTER = `</current_situation>`;
 
+/** Mit Bedeutungs-Suche: so viele jüngste Chronik-Einträge bleiben immer drin. */
+const RECENT_HISTORY_KEEP = 3;
+
 /** Wickelt den Kanon-Text in den Envelope. Pure function. */
 export function buildAlwaysCoreText(coreText) {
     if (typeof coreText !== 'string' || !coreText.trim()) return '';
@@ -65,9 +69,12 @@ export function buildStateText(stateText) {
  * @param {string} messagesText – jüngste Nachrichten (Relevanz-Fenster)
  * @param {object} [opts]
  * @param {boolean} [opts.includeHistory=true]
+ * @param {Set<string>|null} [opts.forceIds] – IDs aus der Bedeutungs-Suche: diese
+ *   Schlüsselmomente/Chronik-Einträge immer behalten. Ist das Set gesetzt, wird die
+ *   Chronik auf Kapitel + Treffer + die jüngsten Einträge reduziert.
  * @returns {string} gefiltertes XML
  */
-export function filterBrainByRelevance(brainXml, messagesText, { includeHistory = true } = {}) {
+export function filterBrainByRelevance(brainXml, messagesText, { includeHistory = true, forceIds = null } = {}) {
     if (!brainXml || !brainXml.trim()) return brainXml;
 
     const parser = new DOMParser();
@@ -125,6 +132,10 @@ export function filterBrainByRelevance(brainXml, messagesText, { includeHistory 
     const sceneLocText = root.querySelector(':scope > scene > location')?.textContent?.trim().toLowerCase() || '';
     const kmContainer = filteredDoc.createElement('key_moments');
     for (const km of root.querySelectorAll(':scope > key_moments > key_moment')) {
+        if (forceIds?.has(km.getAttribute('id'))) {
+            kmContainer.appendChild(clone(km));
+            continue;
+        }
         const personMatch = [...km.querySelectorAll('who > person')].some(p => activeChars.has(p.textContent?.trim()));
         if (!personMatch) continue;
         const importance = (km.getAttribute('importance') || '').toLowerCase();
@@ -149,7 +160,17 @@ export function filterBrainByRelevance(brainXml, messagesText, { includeHistory 
 
     if (includeHistory) {
         const history = root.querySelector(':scope > history');
-        if (history && history.children.length > 0) out.appendChild(clone(history));
+        if (history && history.children.length > 0) {
+            const h = clone(history);
+            if (forceIds) {
+                const entries = [...h.querySelectorAll(':scope > entry')];
+                entries.forEach((e, i) => {
+                    const keep = e.getAttribute('kind') === 'chapter' || forceIds.has(e.getAttribute('id')) || i >= entries.length - RECENT_HISTORY_KEEP;
+                    if (!keep) e.remove();
+                });
+            }
+            out.appendChild(h);
+        }
     }
 
     return new XMLSerializer().serializeToString(filteredDoc);
@@ -362,12 +383,27 @@ export async function runAlwaysCore({ ctx, settings, type, chat: genChat }) {
         const windowSize = Math.max(1, settings.relevanceWindow || 6);
         const recentText = narrative.slice(-windowSize).map(m => String(m.mes ?? '')).join('\n');
 
-        const renderOpts = { dedupeCard: settings.dedupeCard !== false };
+        const renderOpts = {
+            dedupeCard: settings.dedupeCard !== false,
+            chatLength: Array.isArray(ctx.chat) ? ctx.chat.length : undefined,
+            threadAge: settings.threadNudge === false ? 0 : (settings.threadAge || 40),
+        };
         const measure = (xml) => {
             const r = renderCompact(xml, renderOpts);
             return r.core.length + r.state.length;
         };
-        let filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false });
+        // Bedeutungs-Suche: passende Erinnerungen auch ohne Namensnennung. Fail-soft.
+        let forceIds = null;
+        if (settings.semanticEnabled) {
+            try {
+                const query = narrative.slice(-2).map(m => String(m.mes ?? '')).join('\n');
+                forceIds = await semantic.relevantIds(ctx.chatId, brain, query);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX} semantic search failed – name matching only`, err);
+            }
+        }
+
+        let filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false, forceIds });
         filtered = trimToBudget(filtered, settings.ccsTokenBudget ?? 0, measure);
         const { core, state } = renderCompact(filtered, renderOpts);
 

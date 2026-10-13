@@ -15,6 +15,7 @@ const LABELS = {
         moments: 'Schlüsselmomente', arcs: 'Handlungsbögen', chronicle: 'Chronik', situation: 'Aktuelle Lage',
         place: 'Ort', time: 'Zeit', mood: 'Stimmung', present: 'Anwesend', tension: 'Spannung', chapter: 'Kapitel',
         states: 'Zustand', pins: 'Merkzettel (Autor)', recent: 'Zuletzt geschehen', aka: 'auch',
+        dormant: 'Liegengebliebene Fäden', dormantHint: 'Greife einen davon auf, wenn es sich natürlich ergibt – nicht erzwingen.',
         atmosphere: 'Atmosphäre', threads: 'Offene Fäden', outcome: 'Ergebnis', npc: 'NSC', main: 'Hauptfigur',
         fields: {
             core: 'Kern', appearance: 'Aussehen', background: 'Hintergrund', abilities: 'Fähigkeiten',
@@ -27,6 +28,7 @@ const LABELS = {
         moments: 'Key moments', arcs: 'Story arcs', chronicle: 'Chronicle', situation: 'Current situation',
         place: 'Location', time: 'Time', mood: 'Mood', present: 'Present', tension: 'Tension', chapter: 'Chapter',
         states: 'State', pins: 'Notes (author)', recent: 'Recently', aka: 'aka',
+        dormant: 'Dormant threads', dormantHint: 'Pick one up if it fits naturally – do not force it.',
         atmosphere: 'Atmosphere', threads: 'Open threads', outcome: 'Outcome', npc: 'NPC', main: 'Main character',
         fields: {
             core: 'Core', appearance: 'Appearance', background: 'Background', abilities: 'Abilities',
@@ -116,9 +118,12 @@ export function selectRelevant(root, recentText) {
  * @param {string} brainXml
  * @param {object} [opts]
  * @param {boolean} [opts.dedupeCard=true] – statische Felder des Hauptcharakters weglassen
+ * @param {number} [opts.chatLength] – aktuelle Chat-Länge (für liegengebliebene Fäden)
+ * @param {number} [opts.threadAge=0] – ab so vielen Nachrichten ohne Bezug gilt ein Faden
+ *   als liegengeblieben (0 = Hinweis aus)
  * @returns {{ core: string, state: string }}
  */
-export function renderCompact(brainXml, { dedupeCard = true } = {}) {
+export function renderCompact(brainXml, { dedupeCard = true, chatLength, threadAge = 0 } = {}) {
     const doc = new DOMParser().parseFromString(brainXml || '', 'application/xml');
     const root = doc.documentElement;
     if (doc.querySelector('parsererror') || !root || root.nodeName !== 'brain') return { core: '', state: '' };
@@ -218,6 +223,19 @@ export function renderCompact(brainXml, { dedupeCard = true } = {}) {
     section(state, L.situation, sceneLines);
 
     section(state, L.pins, texts(root.querySelector(':scope > pinned'), 'pin').map(p => `- ${p}`));
+
+    // Fäden-Register: die zwei am längsten unberührten offenen Fäden aktiver Arcs
+    if (threadAge > 0 && Number.isFinite(chatLength)) {
+        const dormant = [...root.querySelectorAll(':scope > arcs > arc[status="active"] > open_threads > thread')]
+            .map(t => {
+                const last = Math.max(Number(t.getAttribute('since') ?? NaN), Number(t.getAttribute('touched') ?? -1));
+                return { text: t.textContent.trim(), age: chatLength - last };
+            })
+            .filter(t => t.text && Number.isFinite(t.age) && t.age >= threadAge)
+            .sort((a, b) => b.age - a.age)
+            .slice(0, 2);
+        if (dormant.length) section(state, L.dormant, [...dormant.map(t => `- ${t.text}`), L.dormantHint]);
+    }
     section(state, L.recent, recent.map(historyLine));
 
     return { core: core.join('\n').trim(), state: state.join('\n').trim() };

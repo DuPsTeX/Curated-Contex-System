@@ -132,10 +132,13 @@ function writeValues(doc, type, el, v) {
     }
     for (const [c, item] of Object.entries(t.lists || {})) {
         const container = ensure(doc, el, c);
+        // Attribute unveränderter Einträge behalten (z.B. Zeitstempel offener Fäden)
+        const keep = new Map([...container.children].map(e => [e.textContent.trim(), e]));
         while (container.firstChild) container.removeChild(container.firstChild);
         for (const line of v[c].split('\n').map(s => s.trim()).filter(Boolean)) {
             const e = doc.createElement(item);
             e.textContent = line;
+            for (const a of keep.get(line)?.attributes || []) e.setAttribute(a.name, a.value);
             container.appendChild(e);
         }
     }

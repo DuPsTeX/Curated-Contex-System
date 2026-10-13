@@ -74,6 +74,22 @@
                     <span>Nachrichten</span>
                     <small>Figuren und Orte, die in so vielen letzten Nachrichten genannt werden (Name oder Alias), kommen in den Kontext. Anwesende Figuren immer.</small>
                 </div>
+
+                <label class="checkbox_label" for="ccs-semantic" title="Findet passende Schlüsselmomente und Chronik-Einträge nach Bedeutung – auch ohne Namensnennung. Die Chronik im Prompt wird dann auf Kapitel, Treffer und die jüngsten Einträge reduziert. Nutzt das lokale Embedding-Modell von SillyTavern (config.yaml: extensions.models.embedding).">
+                    <input id="ccs-semantic" type="checkbox" />
+                    <span>Bedeutungs-Suche (Embeddings)</span>
+                </label>
+
+                <label class="checkbox_label" for="ccs-thread-nudge" title="Offene Fäden aktiver Handlungsbögen, die lange nicht aufgegriffen wurden, erscheinen als sanfter Hinweis in der aktuellen Lage (und damit auch beim Director).">
+                    <input id="ccs-thread-nudge" type="checkbox" />
+                    <span>An liegengebliebene Fäden erinnern</span>
+                </label>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-thread-age"><strong>Liegengeblieben nach</strong></label>
+                    <input id="ccs-thread-age" type="number" min="5" step="5" value="40" class="text_pole" style="width:70px" />
+                    <span>Nachrichten</span>
+                </div>
             </div>
 
             <div class="ccs-auto-section">
