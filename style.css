@@ -853,3 +853,64 @@
 .ccs-pending-badge:hover {
     background: rgba(255, 196, 0, 0.25);
 }
+
+/* Hub als Editor */
+.ccs-hub-editable {
+    cursor: pointer;
+}
+
+.ccs-hub-editable:hover {
+    border-left-color: var(--SmartThemeQuoteColor, #e18a24);
+    background: var(--grey20, #2a2a2a);
+}
+
+.ccs-hub-add {
+    margin-left: auto;
+    padding: 0 6px;
+    border: 1px solid var(--grey30, #444);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.ccs-hub-add:hover {
+    background: var(--grey30, #444);
+}
+
+.ccs-editor-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    text-align: left;
+}
+
+.ccs-editor-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2em;
+}
+
+.ccs-editor-row > span {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+.ccs-editor-row textarea {
+    resize: vertical;
+}
+
+.ccs-editor-delete {
+    margin-top: 0.5em;
+    color: var(--warning, #e74c3c);
+}
+
+.ccs-compact-popup,
+.ccs-versions-popup {
+    text-align: left;
+}
+
+.ccs-version-row {
+    margin: 0.2em 0;
+}

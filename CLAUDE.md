@@ -164,3 +164,14 @@ Zusätzlich zu Phase 1 verfügbar über `window.ccs`:
 - **Max Chat-Nachrichten** kappt nur Messages mit Index <= Cursor (schon im Brain); ohne Cursor wird nichts gekappt.
 - **Auto-Update** (`autoUpdateEnabled`, `autoUpdateEvery`, `autoUpdateAccept`): nach `MESSAGE_RECEIVED` (entprellt) wird geprüft, ob genug unanalysierte Messages da sind; die 2 jüngsten werden zurückgehalten (Swipe/Edit). Ergebnis landet als `pendingUpdate` (Badge + Toast) oder wird bei „ohne Rückfrage“ über die unsichtbar gerenderte Popup-Logik (gleiche IDs/Validierung) direkt übernommen. Apply läuft immer auf dem **aktuellen** Brain (Pins/Edits zwischendurch bleiben erhalten); hat sich der Cursor verändert, wird das Ergebnis verworfen.
 - **Reasoning-Modelle:** Update-Budget 16000 Tokens – DeepSeek hat 6000 komplett fürs Nachdenken verbraucht (`No message generated`).
+
+## Phase 5: Injektion, Verdichten, Versionen, Hub-Editor
+
+- **`src/render.js`**: `selectRelevant` (Name/Alias als ganzes Wort, Unicode, Endungen -s/-es/-n/-en/'s; Szene-Anwesende + Szene-Ort immer) und `renderCompact` → `{ core, state }` als kompakter Text. Statische Hauptfigur-Felder entfallen bei `dedupeCard`, außer sie tragen `updated="1"` (gesetzt von `character_field_updates` und vom Hub-Editor).
+- **Injektion**: `CCS_CORE` IN_PROMPT (Kanon), `CCS_STATE` IN_CHAT @ `stateDepth` (Szene, Zustände, Pins, 2 jüngste Chronik-Einträge). `<image>` (Base64) wird nie injiziert oder ans Update-LLM geschickt. Gemessen am Test-Brain: ~50 % weniger Zeichen.
+- **`src/cursor.js`**: Cursor zusätzlich über `last_analyzed_send_date` verankert (ST-`send_date` ist ein ISO-Zeitstempel); `resolveCursor` findet die Nachricht nach Löschungen wieder.
+- **Update**: `buildUpdateBrain` zeigt dem LLM nur die 6 jüngsten Key-Moments / 3 History-Einträge (`older_entries_omitted`), `capProposals` begrenzt pro Kategorie, `new_pins` = 0 (Pins nur vom Autor). Aliase für Figuren und Orte.
+- **`src/compactor.js`**: ältere History → Kapitel (`kind="chapter"`), ältere Key-Moments konsolidiert; jüngste 3/5 bleiben. Bricht ab, wenn das LLM keine Kapitel liefert oder kritische Momente verwirft.
+- **Versionen** (`storage.js`): `ccs_brain_versions` (max. 8, neueste zuerst) + `ccs_brain_label` für den aktuellen Stand. Löschen und Wiederherstellen sind selbst rückgängig machbar.
+- **`src/editor.js`**: generischer Formular-Editor (Typen in `TYPES`), speichert immer auf dem frisch gelesenen Brain. Figurennamen und Beziehungs-Enden sind beim Bearbeiten gesperrt (Referenzen). Hub feuert `ccs:brain-changed` → index.js aktualisiert Pins/Status.
+- **Director**: Brief wird per Schlüssel (Chat + letzte Nachricht) gecacht und bei Swipe/Regenerate wiederverwendet; bei Continue/Impersonate kein Director.

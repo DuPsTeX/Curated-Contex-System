@@ -1,15 +1,14 @@
 // Character Detail: Draggable popup showing all Brain fields for one character.
 // Supports image upload (base64 stored in <image> tag inside the Brain XML).
+// Felder bearbeiten: "Bearbeiten"-Button öffnet den Formular-Editor (editor.js).
 //
-// API: chardetail.open(characterData, brainXml) / chardetail.close()
+// API: chardetail.open(characterData, onEdit, onSaved) / chardetail.close()
 
 import * as storage from './storage.js';
 
 const LOG_PREFIX = '[CCS]';
 
 let panel = null;
-let currentChar = null;
-let currentBrainXml = null;
 
 function el(tag, opts = {}) {
     const e = document.createElement(tag);
@@ -83,7 +82,7 @@ function makeDraggable(panelEl, handleEl) {
     document.addEventListener('touchend', onUp);
 }
 
-function buildPanel(ch, brainXml) {
+function buildPanel(ch, onEdit, onSaved) {
     const container = el('div', { cls: 'ccs-cd-panel' });
 
     // Header
@@ -93,8 +92,15 @@ function buildPanel(ch, brainXml) {
     container.appendChild(handle);
 
     const toolbar = el('div', { cls: 'ccs-cd-toolbar' });
+    const btnEdit = el('button', { cls: 'ccs-cd-btn', html: '<i class="fa-solid fa-pen"></i> Bearbeiten' });
+    btnEdit.title = 'Felder dieser Figur bearbeiten';
+    btnEdit.addEventListener('click', () => {
+        close();
+        onEdit?.();
+    });
+    toolbar.appendChild(btnEdit);
     const btnSave = el('button', { cls: 'ccs-cd-btn ccs-cd-btn--save', html: '<i class="fa-solid fa-floppy-disk"></i> Speichern' });
-    btnSave.title = 'Bild + Änderungen im Brain speichern';
+    btnSave.title = 'Bild im Brain speichern';
     toolbar.appendChild(btnSave);
     const btnClose = el('button', { cls: 'ccs-cd-btn ccs-cd-btn--close', html: '<i class="fa-solid fa-xmark"></i>' });
     toolbar.appendChild(btnClose);
@@ -117,7 +123,9 @@ function buildPanel(ch, brainXml) {
     imgArea.appendChild(imgHint);
 
     // Hidden file input
-    const fileInput = el('input', { attrs: { type: 'file', accept: 'image/*' } });
+    const fileInput = el('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
     fileInput.style.display = 'none';
     imgArea.appendChild(fileInput);
 
@@ -180,10 +188,11 @@ function buildPanel(ch, brainXml) {
         btnSave.disabled = true;
         btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichere...';
         try {
+            // Immer das aktuelle Brain lesen – seit dem Öffnen kann ein Update gelaufen sein.
             const parser = new DOMParser();
-            const doc = parser.parseFromString(currentBrainXml, 'application/xml');
+            const doc = parser.parseFromString(await storage.getLivingDocument() || '', 'application/xml');
             if (doc.querySelector('parsererror')) throw new Error('Brain unparseable');
-            const charEl = doc.querySelector(`characters > character[name="${ch.name}"]`);
+            const charEl = [...doc.querySelectorAll(':scope > characters > character')].find(c => c.getAttribute('name') === ch.name);
             if (!charEl) throw new Error(`Character "${ch.name}" not found in Brain`);
 
             let imgTag = charEl.querySelector(':scope > image');
@@ -194,9 +203,9 @@ function buildPanel(ch, brainXml) {
             imgTag.textContent = pendingImage;
 
             const updatedXml = new XMLSerializer().serializeToString(doc);
-            await storage.saveLivingDocument(updatedXml);
-            currentBrainXml = updatedXml;
+            await storage.saveLivingDocument(updatedXml, undefined, `Bild: ${ch.name}`);
             ch.image = pendingImage;
+            onSaved?.();
             pendingImage = null;
             btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Gespeichert';
             setTimeout(() => {
@@ -216,11 +225,9 @@ function buildPanel(ch, brainXml) {
     return container;
 }
 
-export function open(ch, brainXml) {
+export function open(ch, onEdit, onSaved) {
     close();
-    currentChar = ch;
-    currentBrainXml = brainXml;
-    panel = buildPanel(ch, brainXml);
+    panel = buildPanel(ch, onEdit, onSaved);
     panel.style.top = '100px';
     panel.style.left = '100px';
     document.body.appendChild(panel);
@@ -231,6 +238,4 @@ export function close() {
         panel.remove();
         panel = null;
     }
-    currentChar = null;
-    currentBrainXml = null;
 }

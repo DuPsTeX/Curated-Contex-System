@@ -1,18 +1,23 @@
 # Curated Context System (CCS)
 
-**Status:** Alpha / Phase 4 (Auto-Update, Speicherung in Chat-Metadaten, Director, Hub, Pins)
+**Status:** Alpha / Phase 5 (kompakte Zwei-Block-Injektion, Verdichten, Versionen, Hub-Editor)
 
 SillyTavern-Extension für autor-kuratiertes Langzeitgedächtnis beim LLM-Roleplay. Der Autor kuriert ein *Living Document* (XML pro Chat); die Extension injiziert pro Turn deterministisch den relevanten Kontext.
 
-## Features (Phase 2)
+## Features
 
 - **Brain initialisieren** – erzeugt das XML-Brain aus Character Card + Lorebook-Quellen via LLM.
-- **Anzeigen / Bearbeiten** – Textarea-Editor mit Auto-Repair und Validation beim Speichern.
-- **Brain updaten** – analysiert neue Chat-Messages, schlägt strukturierte Updates pro Kategorie vor (NPCs, Beziehungen, Orte, Key-Moments, Arc-Fortschritt, current_state, …). Reviewbare Card-UI mit Checkbox pro Proposal, Inline-Edit, Referenz-Validation. Cursor-basierte Idempotenz.
-- **Löschen** – entfernt das Brain des aktuellen Chats.
+- **Brain updaten** – analysiert neue Chat-Messages in Blöcken (älteste zuerst, nichts geht verloren) und schlägt strukturierte Updates vor. Reviewbare Card-UI mit Checkbox pro Vorschlag, Inline-Edit, Referenz-Validation. Obergrenzen pro Kategorie, keine LLM-Pins.
+- **Auto-Update** – alle N Nachrichten im Hintergrund; Vorschläge werden gesammelt zur Freigabe angeboten oder ohne Rückfrage übernommen.
+- **Injektion** – kompakter Text statt XML, aufgeteilt in den stabilen Kanon (oben im Prompt) und die aktuelle Lage (nahe der letzten Nachricht). Statische Felder der Hauptfigur werden nicht doppelt zur Character Card geschickt. Relevanz über Name/Alias als ganzes Wort in den letzten N Nachrichten plus Szene.
+- **Verdichten** – fasst ältere Chronik-Einträge zu Kapiteln zusammen und führt ältere Schlüsselmomente zusammen (mit Vorschau).
+- **Versionen** – die letzten 8 Brain-Stände pro Chat, wiederherstellbar (auch nach Löschen).
+- **Hub** – schwebendes Dashboard; jeder Eintrag per Klick bearbeitbar, „+“ legt neue an.
+- **Director** (optional) – narrativer Brief vor jeder Generierung, wird bei Swipe/Regenerate wiederverwendet.
+- **Pins** – Merkzettel des Autors, immer im Kontext.
 - **Prompts anpassbar via Files** – siehe `prompts/` (wandert per git zwischen PCs).
 
-Der Interceptor (Schicht 1 "Immer-Kern") injiziert das komplette Brain pro Gen-Call als `<authoritative_context>`-Envelope via `setExtensionPrompt`.
+Das Brain liegt pro Chat in den Chat-Metadaten (atomar, Branches bekommen eine eigene Kopie).
 
 ## Installation
 
@@ -24,6 +29,8 @@ Die System-Prompts für "Brain initialisieren" und "Brain updaten" liegen als Te
 
 - `prompts/init-system.txt` – Prompt für die Brain-Initialisierung
 - `prompts/update-system.txt` – Prompt für Brain-Updates
+- `prompts/director-system.txt` – Prompt für den Director
+- `prompts/compact-system.txt` – Prompt fürs Verdichten
 - `prompts/README.md` – Editier-Anleitung + Hinweise zum `{{LANG_RULE}}`-Platzhalter
 
 Editieren, speichern, SillyTavern neu laden (F5). Änderungen wandern per `git push/pull` zwischen PCs mit. Fehlt/ist eine Datei leer, greift ein in-Code-Fallback — die Extension bricht nie.

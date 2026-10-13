@@ -1,10 +1,12 @@
 // CCS Hub: Schwebendes Dashboard mit allen Brain-Kategorien auf einen Blick.
 // Dragbar, collapsible Sections, auto-refresh bei Chat-Wechsel / Brain-Update.
+// Jeder Eintrag ist per Klick bearbeitbar (editor.js), "+" legt neue an.
 //
 // API: hub.toggle() / hub.refresh() / hub.destroy()
 
 import * as storage from './storage.js';
 import * as chardetail from './chardetail.js';
+import * as editor from './editor.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -34,6 +36,30 @@ const CATEGORY_LABELS = {
     history: 'Chronik',
     pinned: 'Pins',
 };
+
+/** Hub-Sektion → Editor-Typ (für "+ neu"). */
+const NEW_TYPES = {
+    characters: 'character',
+    relationships: 'relationship',
+    locations: 'location',
+    key_moments: 'key_moment',
+    arcs: 'arc',
+    world_rules: 'rule',
+    history: 'history',
+    pinned: 'pin',
+};
+
+/** Nach jeder Änderung: Hub neu zeichnen + index.js informieren (Pins, Status). */
+function changed() {
+    refresh();
+    document.dispatchEvent(new CustomEvent('ccs:brain-changed'));
+}
+
+/** Referenz für den Editor: id bevorzugt, sonst Position im Container. */
+function refOf(node, index) {
+    const id = node.getAttribute('id');
+    return id ? { id } : { index };
+}
 
 function el(tag, opts = {}) {
     const e = document.createElement(tag);
@@ -68,7 +94,8 @@ function parseBrain(xml) {
     }
 
     // Characters
-    data.characters = [...root.querySelectorAll(':scope > characters > character')].map(ch => ({
+    data.characters = [...root.querySelectorAll(':scope > characters > character')].map((ch, i) => ({
+        ref: refOf(ch, i),
         name: ch.getAttribute('name') || '?',
         role: ch.getAttribute('role') || 'npc',
         state: text(ch.querySelector(':scope > current_state')),
@@ -86,14 +113,16 @@ function parseBrain(xml) {
     }));
 
     // Locations
-    data.locations = [...root.querySelectorAll(':scope > locations > location')].map(loc => ({
+    data.locations = [...root.querySelectorAll(':scope > locations > location')].map((loc, i) => ({
+        ref: refOf(loc, i),
         name: loc.getAttribute('name') || '?',
         desc: text(loc.querySelector(':scope > description')),
         atmosphere: text(loc.querySelector(':scope > atmosphere')),
     }));
 
     // Relationships — paired bidirectional
-    const rawRels = [...root.querySelectorAll(':scope > relationships > relationship')].map(rel => ({
+    const rawRels = [...root.querySelectorAll(':scope > relationships > relationship')].map((rel, i) => ({
+        ref: refOf(rel, i),
         from: rel.getAttribute('from') || '?',
         to: rel.getAttribute('to') || '?',
         current: text(rel.querySelector(':scope > current')),
@@ -112,43 +141,56 @@ function parseBrain(xml) {
     }));
 
     // Key Moments
-    data.key_moments = [...root.querySelectorAll(':scope > key_moments > key_moment')].map(km => ({
+    data.key_moments = [...root.querySelectorAll(':scope > key_moments > key_moment')].map((km, i) => ({
+        ref: refOf(km, i),
         summary: text(km.querySelector(':scope > summary')),
         importance: km.getAttribute('importance') || 'low',
         where: text(km.querySelector(':scope > where')),
     }));
 
     // Arcs
-    data.arcs = [...root.querySelectorAll(':scope > arcs > arc')].map(arc => ({
+    data.arcs = [...root.querySelectorAll(':scope > arcs > arc')].map((arc, i) => ({
+        ref: refOf(arc, i),
         title: text(arc.querySelector(':scope > title')),
         status: arc.getAttribute('status') || 'active',
         tension: text(arc.querySelector(':scope > tension')),
     }));
 
     // World Rules
-    data.world_rules = [...root.querySelectorAll(':scope > world_rules > rule')].map(text);
+    data.world_rules = [...root.querySelectorAll(':scope > world_rules > rule')].map((r, i) => ({ ref: { index: i }, text: text(r) }));
 
     // History
-    data.history = [...root.querySelectorAll(':scope > history > entry')].map(entry => ({
+    data.history = [...root.querySelectorAll(':scope > history > entry')].map((entry, i) => ({
+        ref: refOf(entry, i),
+        chapter: entry.getAttribute('kind') === 'chapter',
         scene: entry.getAttribute('scene') || '',
         summary: text(entry.querySelector(':scope > summary')),
         outcome: text(entry.querySelector(':scope > key_outcome')),
     }));
 
     // Pins
-    data.pins = [...root.querySelectorAll(':scope > pinned > pin')].map(text);
+    data.pins = [...root.querySelectorAll(':scope > pinned > pin')].map((p, i) => ({ ref: refOf(p, i), text: text(p) }));
 
     return data;
 }
 
 function renderCategory(titleKey, items, builder) {
-    if (!items || !items.length) return null;
+    if (!items || (!items.length && !NEW_TYPES[titleKey])) return null;
     const section = el('div', { cls: 'ccs-hub-section' });
     const icon = CATEGORY_ICONS[titleKey] || 'fa-circle';
     const label = CATEGORY_LABELS[titleKey] || titleKey;
 
     const header = el('div', { cls: 'ccs-hub-section-header' });
     header.innerHTML = `<i class="fa-solid ${icon}"></i> <b>${label}</b> <span class="ccs-hub-count">(${items.length})</span>`;
+    if (NEW_TYPES[titleKey]) {
+        const add = el('button', { cls: 'ccs-hub-add', html: '<i class="fa-solid fa-plus"></i>' });
+        add.title = 'Neuen Eintrag anlegen';
+        add.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            editor.openNew(NEW_TYPES[titleKey], changed);
+        });
+        header.appendChild(add);
+    }
     section.appendChild(header);
 
     const body = el('div', { cls: 'ccs-hub-section-body' });
@@ -177,7 +219,7 @@ function buildSceneCard(item) {
     if (item.mood) html += `<div><i class="fa-solid fa-cloud"></i> ${esc(item.mood)}</div>`;
     if (item.present.length) html += `<div><i class="fa-solid fa-user-check"></i> ${esc(item.present.join(', '))}</div>`;
     d.innerHTML = html;
-    return d;
+    return editable(d, 'scene', {});
 }
 
 function buildCharCard(ch) {
@@ -194,11 +236,7 @@ function buildCharCard(ch) {
     d.style.cursor = 'pointer';
     d.addEventListener('click', () => {
         // Get fresh brain XML for save context
-        storage.getLivingDocument().then(xml => {
-            chardetail.open(ch, xml || '');
-        }).catch(() => {
-            chardetail.open(ch, '');
-        });
+        chardetail.open(ch, () => editor.open('character', ch.ref, changed), changed);
     });
     return d;
 }
@@ -209,17 +247,16 @@ function buildLocCard(loc) {
     if (loc.desc) html += `<div class="ccs-hub-sub">${esc(loc.desc)}</div>`;
     if (loc.atmosphere) html += `<div class="ccs-hub-sub ccs-hub-mood">${esc(loc.atmosphere)}</div>`;
     d.innerHTML = html;
-    return d;
+    return editable(d, 'location', loc.ref);
 }
 
 function buildRelCard(pair) {
     const d = el('div', { cls: 'ccs-hub-card ccs-hub-card--rel' });
     const nameLabel = pair.names.join(' ↔ ');
-    let html = `<div class="ccs-hub-name">${esc(nameLabel)}</div>`;
+    d.appendChild(el('div', { cls: 'ccs-hub-name', text: nameLabel }));
     for (const dir of pair.dirs) {
-        html += `<div class="ccs-hub-sub">${esc(dir.from)} → ${esc(dir.to)}: ${esc(dir.current)}</div>`;
+        d.appendChild(editable(el('div', { cls: 'ccs-hub-sub', text: `${dir.from} → ${dir.to}: ${dir.current}` }), 'relationship', dir.ref));
     }
-    d.innerHTML = html;
     return d;
 }
 
@@ -231,7 +268,7 @@ function buildKmCard(km) {
     html += esc(km.summary || '(keine Zusammenfassung)');
     if (km.where) html += ` <span class="ccs-hub-sub">— ${esc(km.where)}</span>`;
     d.innerHTML = html;
-    return d;
+    return editable(d, 'key_moment', km.ref);
 }
 
 function buildArcCard(arc) {
@@ -239,23 +276,34 @@ function buildArcCard(arc) {
     const statusColors = { active: '#4caf50', resolved: '#2196f3', abandoned: '#95a5a6' };
     const color = statusColors[arc.status] || '#95a5a6';
     d.innerHTML = `<span class="ccs-hub-arc-badge" style="background:${color}">${esc(arc.status)}</span> <b>${esc(arc.title)}</b>${arc.tension ? ` <span class="ccs-hub-sub">— ${esc(arc.tension)}</span>` : ''}`;
-    return d;
+    return editable(d, 'arc', arc.ref);
 }
 
 function buildHistoryCard(h) {
     const d = el('div', { cls: 'ccs-hub-card' });
     let html = '';
-    if (h.scene) html += `<div class="ccs-hub-name">${esc(h.scene)}</div>`;
+    if (h.scene || h.chapter) html += `<div class="ccs-hub-name">${h.chapter ? '<i class="fa-solid fa-book"></i> ' : ''}${esc(h.scene)}</div>`;
     if (h.summary) html += `<div class="ccs-hub-sub">${esc(h.summary)}</div>`;
     if (h.outcome) html += `<div class="ccs-hub-state">→ ${esc(h.outcome)}</div>`;
     d.innerHTML = html;
-    return d;
+    return editable(d, 'history', h.ref);
 }
 
-function buildTextCard(text) {
+function buildTextCard(item, type) {
     const d = el('div', { cls: 'ccs-hub-card' });
-    d.textContent = text;
-    return d;
+    d.textContent = item.text;
+    return editable(d, type, item.ref);
+}
+
+/** Macht eine Karte klickbar → Editor für diesen Eintrag. */
+function editable(node, type, ref) {
+    node.classList.add('ccs-hub-editable');
+    node.title = 'Klicken zum Bearbeiten';
+    node.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        editor.open(type, ref, changed);
+    });
+    return node;
 }
 
 function esc(str) {
@@ -297,9 +345,9 @@ function buildPanel(data) {
             { key: 'locations', items: data.locations || [], builder: buildLocCard },
             { key: 'key_moments', items: data.key_moments || [], builder: buildKmCard },
             { key: 'arcs', items: data.arcs || [], builder: buildArcCard },
-            { key: 'world_rules', items: (data.world_rules || []).map(t => ({ text: t })), builder: (x) => buildTextCard(x.text) },
+            { key: 'world_rules', items: data.world_rules || [], builder: (x) => buildTextCard(x, 'rule') },
             { key: 'history', items: data.history || [], builder: buildHistoryCard },
-            { key: 'pinned', items: (data.pins || []).map(t => ({ text: t })), builder: (x) => buildTextCard(x.text) },
+            { key: 'pinned', items: data.pins || [], builder: (x) => buildTextCard(x, 'pin') },
         ];
 
         for (const sec of sections) {
@@ -376,11 +424,7 @@ export async function refresh() {
         content.innerHTML = '';
         while (newContent.firstChild) content.appendChild(newContent.firstChild);
     }
-    // Re-bind close + refresh
-    const btnClose = panel.querySelector('.ccs-hub-btn--close');
-    const btnRefresh = panel.querySelector('.ccs-hub-btn');
-    if (btnClose) btnClose.addEventListener('click', () => toggle(false));
-    if (btnRefresh) btnRefresh.addEventListener('click', () => refresh());
+    // Close/Refresh-Buttons gehören zum dauerhaften Panel und sind dort schon gebunden.
     console.log(`${LOG_PREFIX} hub refreshed`);
 }
 

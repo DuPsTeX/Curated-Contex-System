@@ -1194,6 +1194,12 @@ async function init() {
         console.warn(`${LOG_PREFIX} SlashCommandParser not available – slash commands not registered`);
     }
 
+    // Änderungen aus dem Hub-Editor: Pins-Liste und Status nachziehen.
+    document.addEventListener('ccs:brain-changed', () => {
+        updateBrainStateUI();
+        refreshPinsUI();
+    });
+
     // Wand-Menü-Buttons: sichtbare Knöpfe im Extensions-Dropdown (Zauberstab-Icon)
     addWandButtons();
 
