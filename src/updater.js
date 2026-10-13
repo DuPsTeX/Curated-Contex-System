@@ -18,6 +18,8 @@
 import * as storage from './storage.js';
 import { validateBrainXml } from './initializer.js';
 
+import { resolveCursor, writeCursor } from './cursor.js';
+
 const LOG_PREFIX = '[CCS]';
 
 // Slugify-Cap – 40 Zeichen reichen für alle sinnvollen Seeds (Namen, Titel,
@@ -521,6 +523,68 @@ export function extractJson(raw) {
     return s.slice(start);
 }
 
+/** Wie viele der jüngsten Key-Moments / History-Einträge das Update-LLM sieht. */
+const UPDATE_KM_VISIBLE = 6;
+const UPDATE_HISTORY_VISIBLE = 3;
+
+/**
+ * Brain-Ausschnitt für das Update-LLM. Figuren, Orte, Beziehungen und Arcs
+ * braucht es vollständig (exakte Namen/IDs für Referenzen). Ältere Key-Moments
+ * und Chronik-Einträge dagegen nicht – ohne Kürzung wächst jeder Update-Call
+ * mit der Kampagne mit. Bilder (Base64) fliegen immer raus.
+ * @param {string} migratedBrainXml
+ * @returns {string}
+ */
+export function buildUpdateBrain(migratedBrainXml) {
+    const doc = new DOMParser().parseFromString(migratedBrainXml, 'application/xml');
+    const root = doc.documentElement;
+    if (doc.querySelector('parsererror') || !root || root.nodeName !== 'brain') return migratedBrainXml;
+
+    root.querySelectorAll(':scope > characters > character > image').forEach(e => e.remove());
+    const keepLast = (selector, n) => {
+        const items = [...root.querySelectorAll(selector)];
+        const old = items.slice(0, Math.max(0, items.length - n));
+        if (!old.length) return;
+        old[0].parentNode.setAttribute('older_entries_omitted', String(old.length));
+        old.forEach(e => e.remove());
+    };
+    keepLast(':scope > key_moments > key_moment', UPDATE_KM_VISIBLE);
+    keepLast(':scope > history > entry', UPDATE_HISTORY_VISIBLE);
+    return prettyPrintXml(new XMLSerializer().serializeToString(doc));
+}
+
+/**
+ * Obergrenzen pro Kategorie, damit ein Update nicht 18 Karten zum Durchklicken
+ * produziert. Pins schreibt nur der Autor – LLM-Pins werden verworfen.
+ * Key-Moments: die wichtigsten zuerst.
+ */
+const CATEGORY_CAPS = {
+    new_key_moments: 3,
+    new_history_entries: 2,
+    new_world_rules: 3,
+    new_locations: 4,
+    new_characters: 4,
+    new_arcs: 2,
+    new_pins: 0,
+};
+
+export function capProposals(proposals, dropped = []) {
+    const rank = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = [...proposals].sort((a, b) => a.category === 'new_key_moments' && b.category === 'new_key_moments'
+        ? (rank[a.importance] ?? 3) - (rank[b.importance] ?? 3)
+        : 0);
+    const counts = {};
+    const keep = new Set();
+    for (const p of sorted) {
+        const cap = CATEGORY_CAPS[p.category];
+        counts[p.category] = (counts[p.category] || 0) + 1;
+        if (cap === undefined || counts[p.category] <= cap) keep.add(p);
+        else dropped.push({ category: p.category, item: p, reason: `cap ${cap} exceeded` });
+    }
+    // Ursprüngliche Reihenfolge beibehalten
+    return proposals.filter(p => keep.has(p));
+}
+
 /**
  * Baut den userPrompt pro Update-Call (Spec §9.3). Das Brain muss bereits
  * migriert sein (IDs + current_state vorhanden), damit das LLM stabile
@@ -557,7 +621,7 @@ function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverrid
 
 const CHAR_FIELD_ENUM = new Set([
     'core', 'appearance', 'background', 'abilities', 'quirks', 'goals',
-    'speech_style', 'stats', 'inventory', 'reputation', 'current_state',
+    'speech_style', 'stats', 'inventory', 'reputation', 'current_state', 'aliases',
 ]);
 const IMPORTANCE_ENUM = new Set(['low', 'medium', 'high', 'critical']);
 const ARC_CHANGE_ENUM = new Set(['status', 'threads', 'growth_opportunities']);
@@ -709,6 +773,7 @@ export function validateProposals(json, migratedBrainXml) {
             description,
             atmosphere: trimString(item.atmosphere),
             events_here: cleanStringArray(item.events_here),
+            aliases: cleanStringArray(item.aliases),
         });
     }
 
@@ -987,7 +1052,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     const doc = new DOMParser().parseFromString(migratedBrainXml, 'application/xml');
     const root = doc.documentElement;
     const cursorAttr = root ? root.getAttribute('last_analyzed_msg_index') : null;
-    const cursor = cursorAttr == null || cursorAttr === '' ? NaN : parseInt(cursorAttr, 10);
+    const cursor = resolveCursor(migratedBrainXml, ctx.chat);
     const lang = (root && root.getAttribute('lang')) || '';
 
     const chatId = ctx.chatId;
@@ -1016,7 +1081,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     const systemPrompt = await loadUpdateSystemPrompt();
     const userPrompt = buildUpdateUserPrompt({
         systemPrompt,
-        brainXml: migratedBrainXml,
+        brainXml: buildUpdateBrain(migratedBrainXml),
         scanWindow,
         langOverride: lang,
     });
@@ -1055,6 +1120,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     }
 
     const result = validateProposals(json, migratedBrainXml);
+    result.proposals = capProposals(result.proposals, result.dropped);
 
     // History deaktiviert → alle new_history_entries rausfiltern
     if (settings && settings.historyEnabled === false) {
@@ -1169,6 +1235,9 @@ function applyNewLocation(doc, p) {
         appendTextChild(events, 'event', ev, doc);
     }
     el.appendChild(events);
+    const aliases = doc.createElement('aliases');
+    for (const a of (p.aliases || [])) appendTextChild(aliases, 'alias', a, doc);
+    el.appendChild(aliases);
     container.appendChild(el);
 }
 
@@ -1199,7 +1268,18 @@ function applyCharacterFieldUpdate(doc, p) {
         field = doc.createElement(p.field);
         ch.appendChild(field);
     }
+    if (p.field === 'aliases') {
+        // Kommagetrennte Liste → <alias>-Kinder (ersetzt die bisherigen Aliase)
+        clearChildren(field);
+        for (const a of String(p.new ?? '').split(',').map(s => s.trim()).filter(Boolean)) {
+            appendTextChild(field, 'alias', a, doc);
+        }
+        return;
+    }
     field.textContent = p.new != null ? String(p.new) : '';
+    // Markierung für render.js: dieses Feld weicht jetzt von der Character Card ab
+    // und muss auch bei "Karte nicht doppeln" injiziert werden.
+    field.setAttribute('updated', '1');
 }
 
 function applyNewRelationship(doc, p) {
@@ -1427,7 +1507,7 @@ export async function applyProposals(approved, migratedBrainXml, cursorIndex, se
     }
 
     // Cursor setzen + Post-Validate
-    doc.documentElement.setAttribute('last_analyzed_msg_index', String(cursorIndex));
+    writeCursor(doc.documentElement, cursorIndex, typeof SillyTavern !== 'undefined' ? SillyTavern.getContext()?.chat : undefined);
     const newXml = prettyPrintXml(new XMLSerializer().serializeToString(doc));
 
     const v = validateBrainXml(newXml);

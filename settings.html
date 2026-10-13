@@ -43,6 +43,31 @@
 
             <div class="ccs-auto-section">
                 <div class="ccs-director-header">
+                    <i class="fa-solid fa-syringe"></i>
+                    <span>Injektion</span>
+                </div>
+
+                <label class="checkbox_label" for="ccs-dedupe-card" title="Die festen Felder der Hauptfigur (Kern, Aussehen, Hintergrund …) stammen aus der Charakterkarte, die SillyTavern ohnehin mitschickt. Eingefügt werden dann nur Felder, die sich im Spiel verändert haben.">
+                    <input id="ccs-dedupe-card" type="checkbox" />
+                    <span>Charakterkarte nicht doppeln</span>
+                </label>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-state-depth"><strong>Aktuelle Lage bei Tiefe</strong></label>
+                    <input id="ccs-state-depth" type="number" min="0" step="1" value="1" class="text_pole" style="width:70px" />
+                    <small>Szene, Zustände und Pins werden so viele Nachrichten vor dem Ende eingefügt (0 = nach der letzten). Der feste Kanon steht oben im Prompt.</small>
+                </div>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-relevance-window"><strong>Relevanz-Fenster</strong></label>
+                    <input id="ccs-relevance-window" type="number" min="1" step="1" value="6" class="text_pole" style="width:70px" />
+                    <span>Nachrichten</span>
+                    <small>Figuren und Orte, die in so vielen letzten Nachrichten genannt werden (Name oder Alias), kommen in den Kontext. Anwesende Figuren immer.</small>
+                </div>
+            </div>
+
+            <div class="ccs-auto-section">
+                <div class="ccs-director-header">
                     <i class="fa-solid fa-rotate"></i>
                     <span>Auto-Update</span>
                 </div>

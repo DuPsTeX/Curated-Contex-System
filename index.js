@@ -7,6 +7,8 @@ import * as popup from './src/popup.js';
 import * as hub from './src/hub.js';
 import * as director from './src/director.js';
 import * as pins from './src/pins.js';
+import * as render from './src/render.js';
+import * as cursor from './src/cursor.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -47,6 +49,9 @@ const DEFAULT_SETTINGS = {
     autoUpdateEnabled: false,
     autoUpdateEvery: 10,
     autoUpdateAccept: false,
+    dedupeCard: true,
+    stateDepth: 1,
+    relevanceWindow: 6,
 };
 
 function getContext() {
@@ -490,7 +495,7 @@ function refreshAfterSave() {
 async function applyUpdateResult(result, approved) {
     const current = await storage.getLivingDocument();
     if (!current) throw new Error('Brain nicht mehr vorhanden.');
-    if (!Object.is(interceptor.readCursor(current), result.baseCursor)) {
+    if (!Object.is(cursor.resolveCursor(current, getContext()?.chat), result.baseCursor)) {
         throw new Error('Brain wurde inzwischen anderweitig aktualisiert – Vorschläge verworfen.');
     }
     const { xml: base } = updater.migrateLegacyBrain(current);
@@ -644,7 +649,7 @@ async function countUnanalyzed(ctx) {
     const xml = await storage.getLivingDocument();
     if (!xml) return 0;
     const chat = Array.isArray(ctx.chat) ? ctx.chat.slice(0, Math.max(0, ctx.chat.length - AUTO_HOLD_BACK)) : [];
-    const plan = updater.planScanWindow(chat, interceptor.readCursor(xml));
+    const plan = updater.planScanWindow(chat, cursor.resolveCursor(xml, ctx.chat));
     return plan.messages.length + plan.remaining;
 }
 
@@ -836,6 +841,31 @@ function bindUI() {
 
     $('#ccs-pending-badge').on('click', onUpdateClicked);
 
+    // Injektion
+    const $dedupe = $('#ccs-dedupe-card');
+    $dedupe.prop('checked', settings.dedupeCard !== false);
+    $dedupe.on('change', function () {
+        const s = getSettings();
+        s.dedupeCard = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} dedupeCard set to ${s.dedupeCard}`);
+    });
+
+    const bindNumber = (selector, key, min) => {
+        const $el = $(selector);
+        $el.val(settings[key]);
+        $el.on('change', function () {
+            const s = getSettings();
+            const v = parseInt($(this).val(), 10);
+            s[key] = Number.isFinite(v) && v >= min ? v : DEFAULT_SETTINGS[key];
+            $(this).val(s[key]);
+            saveSettings();
+            console.log(`${LOG_PREFIX} ${key} set to ${s[key]}`);
+        });
+    };
+    bindNumber('#ccs-state-depth', 'stateDepth', 0);
+    bindNumber('#ccs-relevance-window', 'relevanceWindow', 1);
+
     $('#ccs-init-btn').on('click', onInitializeClicked);
     $('#ccs-view-btn').on('click', onViewClicked);
     $('#ccs-update-btn').on('click', onUpdateClicked);
@@ -1023,7 +1053,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {

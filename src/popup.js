@@ -46,7 +46,7 @@ const CATEGORY_META = {
 // Schema erweitert – dann wird hier explizit angepasst, nicht implizit mitgezogen).
 const CHAR_FIELD_ENUM = [
     'core', 'appearance', 'background', 'abilities', 'quirks', 'goals',
-    'speech_style', 'stats', 'inventory', 'reputation', 'current_state',
+    'speech_style', 'stats', 'inventory', 'reputation', 'current_state', 'aliases',
 ];
 const IMPORTANCE_ENUM = ['low', 'medium', 'high', 'critical'];
 const ARC_CHANGE_ENUM = ['status', 'threads', 'growth_opportunities'];
@@ -290,8 +290,9 @@ function cardNewLocation(proposal, existingIds) {
     const fDesc = labeledInput('Beschreibung*', textareaField(proposal.description, { dataField: 'description' }), { required: true });
     const fAtm = labeledInput('Atmosphäre', textInput(proposal.atmosphere, { dataField: 'atmosphere' }));
     const fEvents = labeledInput('Ereignisse hier', commaInput(proposal.events_here, { dataField: 'events_here' }));
+    const fAliases = labeledInput('Aliasse', commaInput(proposal.aliases, { dataField: 'aliases' }));
 
-    card.body.append(fName, fDesc, fAtm, fEvents);
+    card.body.append(fName, fDesc, fAtm, fEvents, fAliases);
 
     const nameInput = inputOf(fName);
     const reflectId = () => {
@@ -313,6 +314,7 @@ function cardNewLocation(proposal, existingIds) {
             description: inputOf(fDesc).value,
             atmosphere: inputOf(fAtm).value,
             events_here: parseCommaList(inputOf(fEvents).value),
+            aliases: parseCommaList(inputOf(fAliases).value),
         }),
         validate: () => {
             if (!inputOf(fName).value.trim()) return { msg: 'Name ist Pflicht', el: inputOf(fName) };
