@@ -9,6 +9,7 @@ import * as director from './src/director.js';
 import * as pins from './src/pins.js';
 import * as render from './src/render.js';
 import * as cursor from './src/cursor.js';
+import * as compactor from './src/compactor.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -335,7 +336,7 @@ async function onInitializeClicked() {
         }
 
         const finalXml = (ta.value || '').trim();
-        await storage.saveLivingDocument(finalXml);
+        await storage.saveLivingDocument(finalXml, ctx.chatId, 'Initialisiert');
         pendingUpdate = null;
         updatePendingUI();
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
@@ -433,7 +434,7 @@ async function onViewClicked() {
     }
 
     try {
-        await storage.saveLivingDocument(finalXml);
+        await storage.saveLivingDocument(finalXml, ctx.chatId, 'Manuell bearbeitet');
         toastr.success(`Brain gespeichert (${finalXml.length} Zeichen).`, 'CCS');
         updateBrainStateUI();
         refreshPinsUI();
@@ -570,7 +571,10 @@ async function reviewAndApply(result) {
     const applyResult = await applyUpdateResult(result, popupApi.collectApproved());
     refreshAfterSave();
     toastApplySummary(applyResult);
-    if (applyResult.applied > 0) notifyRemaining(result.remaining);
+    if (applyResult.applied > 0) {
+        notifyRemaining(result.remaining);
+        maybeSuggestCompaction();
+    }
     return applyResult.applied > 0;
 }
 
@@ -689,6 +693,7 @@ async function runAutoUpdate() {
             }
             if (applyResult.failed.length) toastApplySummary(applyResult);
             again = result.remaining > 0;
+            if (!again && applyResult.applied > 0) maybeSuggestCompaction();
         } else {
             pendingUpdate = { chatId: result.chatId, result };
             updatePendingUI();
@@ -715,6 +720,155 @@ function scheduleAutoUpdate() {
     }, 1500);
 }
 
+async function onCompactClicked() {
+    const ctx = getContext();
+    if (!ctx) return;
+    if (!ctx.chatId) {
+        toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const brainXml = await storage.getLivingDocument();
+    if (!brainXml) {
+        toastr.info('Kein Brain vorhanden – bitte zuerst initialisieren.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    if (!compactor.planCompaction(brainXml).canCompact) {
+        toastr.info('Zu wenig ältere Einträge – Verdichten lohnt sich noch nicht.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    if (updateRunning) {
+        toastr.info('Ein Update läuft gerade – bitte kurz warten.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+
+    setUpdateBusy(true);
+    toastr.clear();
+    const progress = toastr.info('Gedächtnis wird verdichtet... Das kann einen Moment dauern.', 'CCS', {
+        timeOut: 0, extendedTimeOut: 0, tapToDismiss: false,
+    });
+    try {
+        const chatId = ctx.chatId;
+        let result;
+        try {
+            result = await compactor.runCompaction({ ctx, brainXml });
+        } finally {
+            toastr.clear(progress);
+        }
+
+        // Review: Vorschau des verdichteten Ergebnisses
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ccs-compact-popup';
+        const h = document.createElement('h3');
+        h.textContent = 'Gedächtnis verdichten';
+        const summary = document.createElement('p');
+        summary.textContent = `Chronik: ${result.oldHistoryCount} ältere Einträge → ${result.chapters.length} Kapitel. `
+            + `Schlüsselmomente: ${result.oldKmCount} ältere → ${result.moments.length}. Die jüngsten Einträge bleiben unverändert. `
+            + 'Der bisherige Stand bleibt unter „Versionen“ wiederherstellbar.';
+        wrapper.append(h, summary);
+        const addList = (title, items) => {
+            if (!items.length) return;
+            const t = document.createElement('h4');
+            t.textContent = title;
+            const ul = document.createElement('ul');
+            for (const s of items) {
+                const li = document.createElement('li');
+                li.textContent = s;
+                ul.appendChild(li);
+            }
+            wrapper.append(t, ul);
+        };
+        addList('Kapitel', result.chapters.map(c => `${c.title ? `${c.title}: ` : ''}${c.summary}`));
+        addList('Schlüsselmomente', result.moments.map(m => `[${m.importance}] ${m.summary}`));
+
+        const choice = await ctx.callGenericPopup(wrapper, ctx.POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Übernehmen', cancelButton: 'Abbrechen', wide: true, allowVerticalScrolling: true,
+        });
+        if (choice !== ctx.POPUP_RESULT.AFFIRMATIVE) {
+            toastr.info('Verdichten abgebrochen – Brain unverändert.', 'CCS');
+            return;
+        }
+
+        const current = await storage.getLivingDocument();
+        const newXml = compactor.applyCompaction(current, result);
+        const v = initializer.validateBrainXml(newXml);
+        if (!v.ok) throw new Error(`Ergebnis ungültig: ${v.error}`);
+        await storage.saveLivingDocument(newXml, chatId, 'Verdichtet');
+        refreshAfterSave();
+        toastr.success(`Verdichtet: ${current.length} → ${newXml.length} Zeichen.`, 'CCS');
+    } catch (err) {
+        toastr.error(err?.message || String(err), 'CCS: Verdichten fehlgeschlagen', { timeOut: 10000 });
+        console.error(`${LOG_PREFIX} compaction failed`, err);
+    } finally {
+        setUpdateBusy(false);
+    }
+}
+
+/** Hinweis, wenn sich genug älteres Material angesammelt hat. */
+async function maybeSuggestCompaction() {
+    try {
+        const xml = await storage.getLivingDocument();
+        if (!xml) return;
+        const plan = compactor.planCompaction(xml);
+        if (plan.oldHistory.length >= 5 || plan.oldKm.length >= 8) {
+            toastr.info('Das Gedächtnis wird lang – „Verdichten“ fasst ältere Einträge zusammen.', 'CCS', {
+                preventDuplicates: true, timeOut: 10000, onclick: () => onCompactClicked(),
+            });
+        }
+    } catch { /* nur ein Hinweis */ }
+}
+
+async function onVersionsClicked() {
+    const ctx = getContext();
+    if (!ctx) return;
+    if (!ctx.chatId) {
+        toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const versions = storage.listVersions();
+    if (!versions.length) {
+        toastr.info('Noch keine älteren Brain-Stände gespeichert.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ccs-versions-popup';
+    const h = document.createElement('h3');
+    h.textContent = 'Brain-Versionen';
+    const hint = document.createElement('p');
+    hint.textContent = 'Älteren Stand auswählen. Der aktuelle Stand wird dabei selbst zur Version – das ist also ebenfalls rückgängig machbar.';
+    wrapper.append(h, hint);
+    versions.forEach((v, i) => {
+        const label = document.createElement('label');
+        label.className = 'checkbox_label ccs-version-row';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'ccs-version';
+        radio.value = String(i);
+        if (i === 0) radio.checked = true;
+        const span = document.createElement('span');
+        span.textContent = `${new Date(v.ts).toLocaleString('de-DE')} – ${v.label || 'ohne Bezeichnung'} (${v.size.toLocaleString('de-DE')} Zeichen)`;
+        label.append(radio, span);
+        wrapper.appendChild(label);
+    });
+
+    const choice = await ctx.callGenericPopup(wrapper, ctx.POPUP_TYPE.CONFIRM, '', {
+        okButton: 'Wiederherstellen', cancelButton: 'Abbrechen', allowVerticalScrolling: true,
+    });
+    if (choice !== ctx.POPUP_RESULT.AFFIRMATIVE) return;
+    const index = parseInt(wrapper.querySelector('input[name="ccs-version"]:checked')?.value ?? '', 10);
+    if (!Number.isFinite(index)) return;
+    try {
+        await storage.restoreVersion(index);
+        pendingUpdate = null;
+        updatePendingUI();
+        refreshAfterSave();
+        toastr.success('Version wiederhergestellt.', 'CCS');
+    } catch (err) {
+        toastr.error(err?.message || String(err), 'CCS: Wiederherstellen fehlgeschlagen', { timeOut: 10000 });
+        console.error(`${LOG_PREFIX} restore failed`, err);
+    }
+}
+
 async function onDeleteClicked() {
     const ctx = getContext();
     if (!ctx) return;
@@ -727,7 +881,7 @@ async function onDeleteClicked() {
         return;
     }
     const res = await ctx.callGenericPopup(
-        'Brain dieses Chats wirklich löschen? Das kann nicht rückgängig gemacht werden.',
+        'Brain dieses Chats wirklich löschen? Über „Versionen“ lässt es sich wiederherstellen.',
         ctx.POPUP_TYPE.CONFIRM,
         '',
         { okButton: 'Löschen', cancelButton: 'Abbrechen' },
@@ -870,6 +1024,8 @@ function bindUI() {
     $('#ccs-view-btn').on('click', onViewClicked);
     $('#ccs-update-btn').on('click', onUpdateClicked);
     $('#ccs-delete-btn').on('click', onDeleteClicked);
+    $('#ccs-compact-btn').on('click', onCompactClicked);
+    $('#ccs-versions-btn').on('click', onVersionsClicked);
 
     // Director-Agent Einstellungen
     const $directorEnabled = $('#ccs-director-enabled');
@@ -985,6 +1141,8 @@ function addWandButtons() {
     menu.appendChild(makeBtn('ccs-wand-init', 'fa-brain', 'CCS: Brain initialisieren', onInitializeClicked));
     menu.appendChild(makeBtn('ccs-wand-update', 'fa-arrows-rotate', 'CCS: Brain updaten', onUpdateClicked));
     menu.appendChild(makeBtn('ccs-wand-view', 'fa-magnifying-glass', 'CCS: Brain anzeigen', onViewClicked));
+    menu.appendChild(makeBtn('ccs-wand-compact', 'fa-compress', 'CCS: Gedächtnis verdichten', onCompactClicked));
+    menu.appendChild(makeBtn('ccs-wand-versions', 'fa-clock-rotate-left', 'CCS: Versionen', onVersionsClicked));
 
     console.log(`${LOG_PREFIX} wand buttons added to extensions menu`);
 }
@@ -1021,7 +1179,17 @@ async function init() {
             callback: () => { onViewClicked(); return ''; },
             helpString: 'CCS: Brain-XML anzeigen und bearbeiten.',
         }));
-        console.log(`${LOG_PREFIX} slash commands registered: /ccs-init, /ccs-update, /ccs-view`);
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-compact',
+            callback: () => { onCompactClicked(); return ''; },
+            helpString: 'CCS: Ältere Chronik und Schlüsselmomente verdichten (mit Vorschau).',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-versions',
+            callback: () => { onVersionsClicked(); return ''; },
+            helpString: 'CCS: Ältere Brain-Stände anzeigen und wiederherstellen.',
+        }));
+        console.log(`${LOG_PREFIX} slash commands registered: /ccs-init, /ccs-update, /ccs-view, /ccs-compact, /ccs-versions`);
     } else {
         console.warn(`${LOG_PREFIX} SlashCommandParser not available – slash commands not registered`);
     }
@@ -1053,7 +1221,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {

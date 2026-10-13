@@ -1516,7 +1516,7 @@ export async function applyProposals(approved, migratedBrainXml, cursorIndex, se
         throw new Error(`Patched brain invalid: ${v.error}`);
     }
 
-    await storage.saveLivingDocument(newXml, expectedChatId);
+    await storage.saveLivingDocument(newXml, expectedChatId, `Update (${results.applied} Änderungen)`);
     console.log(`${LOG_PREFIX} applyProposals: saved (applied=${results.applied}, failed=${results.failed.length}, cursor=${cursorIndex})`);
     return results;
 }

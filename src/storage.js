@@ -82,12 +82,29 @@ export async function getLivingDocument() {
 }
 
 /**
+ * Ältere Brain-Stände als Sicherheitsnetz (Rückgängig), neueste zuerst:
+ * chat_metadata[VERSIONS_KEY] = [{ ts, label, xml }]. Wichtig vor allem seit
+ * Auto-Update „ohne Rückfrage“ – ein schlechtes Update ist so ein Klick.
+ */
+const VERSIONS_KEY = 'ccs_brain_versions';
+const MAX_VERSIONS = 8;
+
+function pushVersion(meta, xml, label) {
+    if (typeof xml !== 'string' || !xml.trim()) return;
+    const list = Array.isArray(meta[VERSIONS_KEY]) ? meta[VERSIONS_KEY] : [];
+    list.unshift({ ts: Date.now(), label: label || '', xml });
+    meta[VERSIONS_KEY] = list.slice(0, MAX_VERSIONS);
+}
+
+/**
  * Speichert (oder ersetzt) das Living Document des aktiven Chats.
+ * Der bisherige Stand wandert in die Versionsliste.
  * @param {string} xmlString – vollständiger XML-Inhalt
  * @param {string} [expectedChatId] – wenn gesetzt: Abbruch, falls inzwischen ein
  *   anderer Chat aktiv ist (verhindert, dass ein laufendes Update in den falschen Chat schreibt)
+ * @param {string} [label] – Grund der Änderung, beschreibt den NEUEN Stand (für die Versionsliste)
  */
-export async function saveLivingDocument(xmlString, expectedChatId) {
+export async function saveLivingDocument(xmlString, expectedChatId, label = '') {
     if (typeof xmlString !== 'string') {
         throw new TypeError('saveLivingDocument expects a string');
     }
@@ -96,18 +113,46 @@ export async function saveLivingDocument(xmlString, expectedChatId) {
     if (expectedChatId !== undefined && ctx.chatId !== expectedChatId) {
         throw new Error('Chat wurde gewechselt – Brain nicht gespeichert.');
     }
+    const previous = ctx.chatMetadata[META_KEY];
+    if (previous !== xmlString) pushVersion(ctx.chatMetadata, previous, ctx.chatMetadata.ccs_brain_label);
     ctx.chatMetadata[META_KEY] = xmlString;
+    ctx.chatMetadata.ccs_brain_label = label;
     dropLegacyEntry(ctx);
     await ctx.saveMetadata();
-    console.log(`${LOG_PREFIX} living document saved (${xmlString.length} chars, chat metadata)`);
+    console.log(`${LOG_PREFIX} living document saved (${xmlString.length} chars, chat metadata${label ? `, ${label}` : ''})`);
 }
 
-/** Löscht das Living Document des aktiven Chats, falls vorhanden. */
+/** Löscht das Living Document des aktiven Chats (bleibt als Version wiederherstellbar). */
 export async function clearLivingDocument() {
     const ctx = getContext();
     if (!ctx?.chatMetadata) return;
+    pushVersion(ctx.chatMetadata, ctx.chatMetadata[META_KEY], ctx.chatMetadata.ccs_brain_label);
     delete ctx.chatMetadata[META_KEY];
+    delete ctx.chatMetadata.ccs_brain_label;
     dropLegacyEntry(ctx);
     await ctx.saveMetadata();
     console.log(`${LOG_PREFIX} living document cleared`);
+}
+
+/**
+ * Gespeicherte ältere Stände, neueste zuerst.
+ * @returns {Array<{ ts: number, label: string, size: number }>}
+ */
+export function listVersions() {
+    const list = getContext()?.chatMetadata?.[VERSIONS_KEY];
+    return Array.isArray(list) ? list.map(v => ({ ts: v.ts, label: v.label || '', size: (v.xml || '').length })) : [];
+}
+
+/**
+ * Stellt Version `index` wieder her. Der aktuelle Stand wird dabei selbst zur
+ * Version – Wiederherstellen ist also ebenfalls rückgängig machbar.
+ * @param {number} index
+ */
+export async function restoreVersion(index) {
+    const ctx = getContext();
+    const list = ctx?.chatMetadata?.[VERSIONS_KEY];
+    const v = Array.isArray(list) ? list[index] : null;
+    if (!v) throw new Error('Version nicht gefunden.');
+    list.splice(index, 1);
+    await saveLivingDocument(v.xml, ctx.chatId, `Wiederhergestellt (${new Date(v.ts).toLocaleString('de-DE')})`);
 }

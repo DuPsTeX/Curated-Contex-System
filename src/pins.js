@@ -124,7 +124,7 @@ export async function addPinAndSave(text) {
     const xml = await storage.getLivingDocument();
     if (!xml) throw new Error('Kein Brain vorhanden');
     const updated = brainWithPin(xml, text);
-    await storage.saveLivingDocument(updated);
+    await storage.saveLivingDocument(updated, undefined, 'Pin hinzugefügt');
     console.log(`${LOG_PREFIX} pins: added "${text.trim()}"`);
 }
 
@@ -136,7 +136,7 @@ export async function deletePinAndSave(index) {
     const xml = await storage.getLivingDocument();
     if (!xml) throw new Error('Kein Brain vorhanden');
     const updated = brainWithoutPin(xml, index);
-    await storage.saveLivingDocument(updated);
+    await storage.saveLivingDocument(updated, undefined, 'Pin gelöscht');
     console.log(`${LOG_PREFIX} pins: removed index ${index}`);
 }
 
@@ -149,6 +149,6 @@ export async function updatePinAndSave(index, text) {
     const xml = await storage.getLivingDocument();
     if (!xml) throw new Error('Kein Brain vorhanden');
     const updated = brainWithUpdatedPin(xml, index, text);
-    await storage.saveLivingDocument(updated);
+    await storage.saveLivingDocument(updated, undefined, 'Pin bearbeitet');
     console.log(`${LOG_PREFIX} pins: updated index ${index}`);
 }
