@@ -19,6 +19,7 @@ import * as storage from './storage.js';
 import { validateBrainXml } from './initializer.js';
 
 import { resolveCursor, writeCursor } from './cursor.js';
+import { stripStatus } from './status.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -541,6 +542,7 @@ export function buildUpdateBrain(migratedBrainXml) {
     if (doc.querySelector('parsererror') || !root || root.nodeName !== 'brain') return migratedBrainXml;
 
     root.querySelectorAll(':scope > characters > character > image').forEach(e => e.remove());
+    root.querySelectorAll(':scope > characters > character[status]').forEach(e => e.removeAttribute('status'));
     const keepLast = (selector, n) => {
         const items = [...root.querySelectorAll(selector)];
         const old = items.slice(0, Math.max(0, items.length - n));
@@ -591,7 +593,7 @@ export function capProposals(proposals, dropped = []) {
  * Referenzen sieht. `langOverride` kommt üblicherweise aus dem
  * `@lang`-Attribut des Brains und dient als expliziter Hinweis.
  */
-function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride }) {
+function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverride, statusSync }) {
     const lines = [];
     lines.push('====== CCS ARCHIVIST MODE – UPDATE ======', '',
         'YOU ARE AN ARCHIVIST, NOT A ROLEPLAYER. Analyze the data below and output structured JSON.',
@@ -605,7 +607,8 @@ function buildUpdateUserPrompt({ systemPrompt, brainXml, scanWindow, langOverrid
     lines.push('<chat_since_last_update>');
     for (const m of scanWindow) {
         const speaker = m.is_user ? 'User' : 'AI';
-        const text = String(m.mes ?? '').trim();
+        // Statusfenster übernimmt der Status-Sync – das LLM soll nur die Erzählung lesen.
+        const text = (statusSync ? stripStatus(String(m.mes ?? '')) : String(m.mes ?? '')).trim();
         lines.push(`${speaker}: ${text}`);
     }
     lines.push('</chat_since_last_update>', '');
@@ -1084,6 +1087,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
         brainXml: buildUpdateBrain(migratedBrainXml),
         scanWindow,
         langOverride: lang,
+        statusSync: settings?.statusSync !== false,
     });
 
     console.log(`${LOG_PREFIX} runUpdate: scanning ${scanWindow.length} messages (cursor=${cursorAttr ?? 'none'} → ${cursorIndex}, remaining=${remaining})`);
@@ -1121,6 +1125,17 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
 
     const result = validateProposals(json, migratedBrainXml);
     result.proposals = capProposals(result.proposals, result.dropped);
+
+    // Werte/Inventar von Figuren mit Statusfenster pflegt der Status-Sync exakt –
+    // LLM-Vorschläge dazu wären nur ungenauere Duplikate.
+    if (settings?.statusSync !== false) {
+        const synced = new Set([...doc.querySelectorAll('characters > character[status]')].map(c => c.getAttribute('name')));
+        result.proposals = result.proposals.filter(p => {
+            const drop = p.category === 'character_field_updates' && (p.field === 'stats' || p.field === 'inventory') && synced.has(p.character);
+            if (drop) result.dropped.push({ category: p.category, item: p, reason: 'maintained by status sync' });
+            return !drop;
+        });
+    }
 
     // History deaktiviert → alle new_history_entries rausfiltern
     if (settings && settings.historyEnabled === false) {

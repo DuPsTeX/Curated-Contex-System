@@ -52,6 +52,16 @@
                     <span>Charakterkarte nicht doppeln</span>
                 </label>
 
+                <label class="checkbox_label" for="ccs-status-sync" title="Liest das Statusfenster (NAME/LEVEL/Attribute/Inventar …) und die Kopfzeilen (Ort, Zeit, ARC) aus jeder neuen KI-Antwort und übernimmt sie ohne LLM-Aufruf ins Brain.">
+                    <input id="ccs-status-sync" type="checkbox" />
+                    <span>Statusfenster automatisch übernehmen</span>
+                </label>
+
+                <label class="checkbox_label" for="ccs-status-strip" title="Die Werte stehen im Brain – ältere Statusfenster im Chatverlauf sind dann nur noch Ballast. Die jüngste Antwort behält ihr Statusfenster.">
+                    <input id="ccs-status-strip" type="checkbox" />
+                    <span>Statusfenster in älteren Nachrichten ausblenden</span>
+                </label>
+
                 <div class="ccs-token-row">
                     <label for="ccs-state-depth"><strong>Aktuelle Lage bei Tiefe</strong></label>
                     <input id="ccs-state-depth" type="number" min="0" step="1" value="1" class="text_pole" style="width:70px" />

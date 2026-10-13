@@ -13,7 +13,7 @@ const LABELS = {
     de: {
         world: 'Weltregeln', characters: 'Figuren', locations: 'Orte', relationships: 'Beziehungen',
         moments: 'Schlüsselmomente', arcs: 'Handlungsbögen', chronicle: 'Chronik', situation: 'Aktuelle Lage',
-        place: 'Ort', time: 'Zeit', mood: 'Stimmung', present: 'Anwesend', tension: 'Spannung',
+        place: 'Ort', time: 'Zeit', mood: 'Stimmung', present: 'Anwesend', tension: 'Spannung', chapter: 'Kapitel',
         states: 'Zustand', pins: 'Merkzettel (Autor)', recent: 'Zuletzt geschehen', aka: 'auch',
         atmosphere: 'Atmosphäre', threads: 'Offene Fäden', outcome: 'Ergebnis', npc: 'NSC', main: 'Hauptfigur',
         fields: {
@@ -25,7 +25,7 @@ const LABELS = {
     en: {
         world: 'World rules', characters: 'Characters', locations: 'Locations', relationships: 'Relationships',
         moments: 'Key moments', arcs: 'Story arcs', chronicle: 'Chronicle', situation: 'Current situation',
-        place: 'Location', time: 'Time', mood: 'Mood', present: 'Present', tension: 'Tension',
+        place: 'Location', time: 'Time', mood: 'Mood', present: 'Present', tension: 'Tension', chapter: 'Chapter',
         states: 'State', pins: 'Notes (author)', recent: 'Recently', aka: 'aka',
         atmosphere: 'Atmosphere', threads: 'Open threads', outcome: 'Outcome', npc: 'NPC', main: 'Main character',
         fields: {
@@ -133,17 +133,27 @@ export function renderCompact(brainXml, { dedupeCard = true } = {}) {
     // --- Core ---------------------------------------------------------------
     section(core, L.world, texts(root.querySelector(':scope > world_rules'), 'rule').map(r => `- ${r}`));
 
+    // Anwesende: Werte + Inventar gehören zur aktuellen Lage (harte Fakten direkt
+    // vor der letzten Nachricht), nicht in den Kanon oben.
+    const sceneEl = root.querySelector(':scope > scene');
+    const presentNames = new Set(texts(sceneEl?.querySelector(':scope > present'), 'person').map(n => n.toLowerCase()));
     const charLines = [];
     const stateLines = [];
     for (const ch of root.querySelectorAll(':scope > characters > character')) {
         const name = ch.getAttribute('name') || '?';
         const isMain = ch.getAttribute('role') === 'main';
         const aliases = texts(ch.querySelector(':scope > aliases'), 'alias');
+        const isPresent = [name, ...aliases].some(n => presentNames.has(n.toLowerCase()));
         const fields = [];
+        const presentFacts = [];
         for (const f of CHAR_FIELDS) {
             const el = ch.querySelector(`:scope > ${f}`);
             const v = el?.textContent?.trim();
             if (!v) continue;
+            if (isPresent && (f === 'stats' || f === 'inventory')) {
+                presentFacts.push(`    ${L.fields[f]}: ${v}`);
+                continue;
+            }
             if (isMain && dedupeCard && !MAIN_DYNAMIC_FIELDS.has(f) && el.getAttribute('updated') !== '1') continue;
             fields.push(`  ${L.fields[f]}: ${v}`);
         }
@@ -152,7 +162,7 @@ export function renderCompact(brainXml, { dedupeCard = true } = {}) {
             charLines.push(`## ${name} (${tag}${aliases.length ? `; ${L.aka}: ${aliases.join(', ')}` : ''})`, ...fields);
         }
         const cs = text(ch, 'current_state');
-        if (cs) stateLines.push(`- ${name}: ${cs}`);
+        if (cs || presentFacts.length) stateLines.push(`- ${name}: ${cs || '—'}`, ...presentFacts);
     }
     section(core, L.characters, charLines);
 
@@ -197,6 +207,7 @@ export function renderCompact(brainXml, { dedupeCard = true } = {}) {
         [L.place, text(scene, 'location')],
         [L.time, text(scene, 'time')],
         [L.mood, text(scene, 'mood')],
+        [L.chapter, text(scene, 'chapter')],
     ].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`);
     if (sceneMeta.length) sceneLines.push(sceneMeta.join(' | '));
     const present = texts(scene?.querySelector(':scope > present'), 'person');

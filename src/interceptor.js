@@ -12,6 +12,7 @@ import * as storage from './storage.js';
 import * as director from './director.js';
 import { selectRelevant, renderCompact } from './render.js';
 import { readCursor, resolveCursor } from './cursor.js';
+import { stripStatus } from './status.js';
 
 export { readCursor };
 
@@ -337,6 +338,22 @@ export async function runAlwaysCore({ ctx, settings, type, chat: genChat }) {
         const removed = trimChatToMax(chat, ctx.chat, settings.maxChatMessages, resolveCursor(brain, ctx.chat));
         if (removed > 0) {
             console.log(`${LOG_PREFIX} interceptor: trimmed ${removed} already-archived messages (max=${settings.maxChatMessages})`);
+        }
+
+        // Statusfenster älterer Antworten ausblenden – die Werte stehen im Brain.
+        // Nur auf dem Generierungs-Chat (flache Kopien), nie auf ctx.chat.
+        if (settings.statusStripOld !== false && Array.isArray(genChat)) {
+            let lastAi = -1;
+            for (let i = chat.length - 1; i >= 0; i--) {
+                if (chat[i] && !chat[i].is_user && !chat[i].is_system) { lastAi = i; break; }
+            }
+            let stripped = 0;
+            chat.forEach((m, i) => {
+                if (i === lastAi || !m || m.is_user || m.is_system) return;
+                const s = stripStatus(String(m.mes ?? ''));
+                if (s !== m.mes) { m.mes = s; stripped++; }
+            });
+            if (stripped) console.log(`${LOG_PREFIX} interceptor: stripped status blocks from ${stripped} older messages`);
         }
 
         // Relevanz-Fenster: die letzten N narrativen Nachrichten. Mehr als 2, damit

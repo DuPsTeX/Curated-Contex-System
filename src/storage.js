@@ -114,7 +114,10 @@ export async function saveLivingDocument(xmlString, expectedChatId, label = '') 
         throw new Error('Chat wurde gewechselt – Brain nicht gespeichert.');
     }
     const previous = ctx.chatMetadata[META_KEY];
-    if (previous !== xmlString) pushVersion(ctx.chatMetadata, previous, ctx.chatMetadata.ccs_brain_label);
+    // Status-Sync läuft nach jeder Antwort – aufeinanderfolgende Syncs sind EIN Stand,
+    // sonst würden sie die Versionsliste in wenigen Zügen überschwemmen.
+    const repeatedSync = label === 'Status-Sync' && ctx.chatMetadata.ccs_brain_label === 'Status-Sync';
+    if (previous !== xmlString && !repeatedSync) pushVersion(ctx.chatMetadata, previous, ctx.chatMetadata.ccs_brain_label);
     ctx.chatMetadata[META_KEY] = xmlString;
     ctx.chatMetadata.ccs_brain_label = label;
     dropLegacyEntry(ctx);

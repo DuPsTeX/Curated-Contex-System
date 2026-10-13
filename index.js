@@ -10,6 +10,7 @@ import * as pins from './src/pins.js';
 import * as render from './src/render.js';
 import * as cursor from './src/cursor.js';
 import * as compactor from './src/compactor.js';
+import * as status from './src/status.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -53,6 +54,8 @@ const DEFAULT_SETTINGS = {
     dedupeCard: true,
     stateDepth: 1,
     relevanceWindow: 6,
+    statusSync: true,
+    statusStripOld: true,
 };
 
 function getContext() {
@@ -712,6 +715,33 @@ async function runAutoUpdate() {
     if (again) scheduleAutoUpdate();
 }
 
+// --- Status-Sync ----------------------------------------------------------------
+// Statusfenster der jüngsten KI-Antwort (RPG-Presets) deterministisch ins Brain
+// übernehmen – Szene, Werte, Inventar. Kein LLM-Call. Läufe werden serialisiert.
+
+let statusQueue = Promise.resolve();
+
+async function syncStatus() {
+    const ctx = getContext();
+    const settings = getSettings();
+    if (!ctx?.chatId || !settings.enabled || !settings.statusSync) return;
+    const last = [...(ctx.chat || [])].reverse().find(m => m && !m.is_user && !m.is_system);
+    const parsed = last ? status.parseStatus(last.mes) : null;
+    if (!parsed) return;
+    const xml = await storage.getLivingDocument();
+    if (!xml) return;
+    const res = status.applyStatusToBrain(xml, parsed);
+    if (!res.changed) return;
+    await storage.saveLivingDocument(res.xml, ctx.chatId, 'Status-Sync');
+    hub.refresh();
+    console.log(`${LOG_PREFIX} status sync: ${res.matched.length ? res.matched.join(', ') : 'scene only'}`);
+}
+
+function scheduleStatusSync() {
+    statusQueue = statusQueue.then(syncStatus).catch(err => console.warn(`${LOG_PREFIX} status sync failed`, err));
+    return statusQueue;
+}
+
 /** Entprellt: mehrere Events kurz hintereinander lösen nur einen Lauf aus. */
 function scheduleAutoUpdate() {
     clearTimeout(autoUpdateTimer);
@@ -1017,6 +1047,18 @@ function bindUI() {
             console.log(`${LOG_PREFIX} ${key} set to ${s[key]}`);
         });
     };
+    for (const [selector, key] of [['#ccs-status-sync', 'statusSync'], ['#ccs-status-strip', 'statusStripOld']]) {
+        const $el = $(selector);
+        $el.prop('checked', settings[key] !== false);
+        $el.on('change', function () {
+            const s = getSettings();
+            s[key] = $(this).prop('checked');
+            saveSettings();
+            console.log(`${LOG_PREFIX} ${key} set to ${s[key]}`);
+            if (key === 'statusSync' && s[key]) scheduleStatusSync();
+        });
+    }
+
     bindNumber('#ccs-state-depth', 'stateDepth', 0);
     bindNumber('#ccs-relevance-window', 'relevanceWindow', 1);
 
@@ -1212,6 +1254,10 @@ async function init() {
         eventSource.on(eventTypes.CHAT_CHANGED, onChatChanged);
         // Auto-Update: nach jeder fertigen KI-Antwort prüfen, ob genug Neues da ist.
         if (eventTypes.MESSAGE_RECEIVED) eventSource.on(eventTypes.MESSAGE_RECEIVED, scheduleAutoUpdate);
+        // Status-Sync: neue Antwort, anderer Swipe, bearbeitete Nachricht.
+        for (const ev of ['MESSAGE_RECEIVED', 'MESSAGE_SWIPED', 'MESSAGE_EDITED']) {
+            if (eventTypes[ev]) eventSource.on(eventTypes[ev], scheduleStatusSync);
+        }
     } else {
         console.warn(`${LOG_PREFIX} CHAT_CHANGED event not wired (missing eventSource or eventTypes)`);
     }
@@ -1227,7 +1273,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {
