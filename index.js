@@ -357,6 +357,13 @@ async function onInitializeClicked() {
         updateBrainStateUI();
         refreshPinsUI();
         hub.refresh();
+
+        // Bestehender Chat? Bisherige Nachrichten gleich nachholen anbieten.
+        const narrative = (getContext().chat || []).filter(m => m && !m.is_system).length;
+        if (narrative > 8) {
+            $btn.prop('disabled', false);
+            await onCatchUpClicked();
+        }
     } catch (err) {
         toastr.clear(progress);
         const msg = err?.message || String(err);
@@ -761,6 +768,120 @@ function scheduleAutoUpdate() {
     }, 1500);
 }
 
+// --- Nachholen: bestehende lange Chats Block für Block ins Brain übernehmen -------
+
+let catchUpCancel = false;
+
+/**
+ * Arbeitet alle noch nicht analysierten Nachrichten in Blöcken ab und übernimmt
+ * die Vorschläge automatisch (jeder Block ist über „Versionen“ rückgängig machbar).
+ * @param {object} [opts]
+ * @param {boolean} [opts.confirm=true] – vorher nachfragen
+ */
+async function onCatchUpClicked({ confirm = true } = {}) {
+    const ctx = getContext();
+    if (!ctx) return;
+    if (!ctx.chatId) {
+        toastr.warning('Bitte zuerst einen Chat öffnen.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const settings = getSettings();
+    if (!settings.enabled) {
+        toastr.warning('CCS ist deaktiviert – bitte oben aktivieren.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const xml = await storage.getLivingDocument();
+    if (!xml) {
+        toastr.info('Kein Brain vorhanden – bitte zuerst initialisieren.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    if (updateRunning) {
+        toastr.info('Ein Update läuft gerade – bitte kurz warten.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+
+    const plan = updater.planScanWindow(ctx.chat, cursor.resolveCursor(xml, ctx.chat));
+    const open = plan.messages.length + plan.remaining;
+    if (!open) {
+        toastr.info('Das Brain ist auf dem neuesten Stand.', 'CCS', { preventDuplicates: true });
+        return;
+    }
+    const blocks = Math.ceil(open / updater.SCAN_WINDOW_MAX);
+
+    if (confirm) {
+        const minutes = Math.max(1, Math.round(blocks * 20 / 60));
+        const choice = await ctx.callGenericPopup(
+            `<h3>Nachholen</h3><p>${open} Nachrichten sind noch nicht im Brain (${blocks} ${blocks === 1 ? 'Block' : 'Blöcke'}). `
+            + `CCS arbeitet sie nacheinander ab und übernimmt die Vorschläge automatisch. Dauer etwa ${minutes} Min.</p>`
+            + '<p>Jeder Block ist über „Versionen“ rückgängig machbar. Abbrechen jederzeit per Klick auf die Fortschrittsanzeige.</p>',
+            ctx.POPUP_TYPE.CONFIRM, '', { okButton: 'Nachholen', cancelButton: 'Abbrechen' },
+        );
+        if (choice !== ctx.POPUP_RESULT.AFFIRMATIVE) return;
+    }
+
+    pendingUpdate = null;
+    updatePendingUI();
+    setUpdateBusy(true);
+    catchUpCancel = false;
+    const chatId = ctx.chatId;
+    toastr.clear();
+    // Starttext nicht leer lassen – sonst legt toastr kein Textfeld an, das wir später füllen können.
+    const progress = toastr.info('Wird gestartet …', 'CCS: Nachholen', {
+        timeOut: 0, extendedTimeOut: 0, tapToDismiss: false,
+        // toastr blendet die Anzeige beim Klick selbst aus – Bestätigung als eigene Meldung.
+        onclick: () => {
+            catchUpCancel = true;
+            toastr.info('Nachholen wird nach dem laufenden Block beendet …', 'CCS', { timeOut: 5000 });
+        },
+    });
+    const progressText = (t) => $(progress).find('.toast-message').text(t);
+
+    let block = 0;
+    let applied = 0;
+    let failed = 0;
+    let stopReason = '';
+    try {
+        while (!catchUpCancel) {
+            const c = getContext();
+            if (c.chatId !== chatId) { stopReason = 'Chat gewechselt'; break; }
+            progressText(`Block ${block + 1} von ${blocks} wird analysiert … (Klicken zum Abbrechen)`);
+
+            const before = cursor.resolveCursor(await storage.getLivingDocument(), c.chat);
+            const result = await updater.runUpdate({ ctx: c, settings: getSettings() });
+            if (result.scanWindowEmpty) break;
+            if (!result.shape_ok) throw new Error(`Block ${block + 1}: Antwort strukturell ungültig.`);
+
+            // Popup-Logik unsichtbar nutzen: gleiche IDs wie beim manuellen Freigeben.
+            // Unvollständige Vorschläge scheitern beim Anwenden einzeln (fail-soft).
+            const approved = result.proposals.length
+                ? popup.renderUpdatePopup({ proposals: result.proposals, migratedBrainXml: result.migratedBrainXml, reasoning: '' }).collectApproved()
+                : [];
+            const r = await applyUpdateResult(result, approved);
+            applied += r.applied;
+            failed += r.failed.length;
+            block++;
+            refreshAfterSave();
+
+            const after = cursor.resolveCursor(await storage.getLivingDocument(), getContext().chat);
+            if (Object.is(after, before)) throw new Error(`Block ${block}: nichts übernommen – Nachholen gestoppt.`);
+            if (!result.remaining) break;
+        }
+        if (catchUpCancel) stopReason = 'abgebrochen';
+    } catch (err) {
+        stopReason = err?.message || String(err);
+        console.error(`${LOG_PREFIX} catch-up failed`, err);
+    } finally {
+        toastr.clear(progress);
+        setUpdateBusy(false);
+    }
+
+    const summary = `${block} ${block === 1 ? 'Block' : 'Blöcke'} verarbeitet, ${applied} Änderungen übernommen${failed ? `, ${failed} fehlgeschlagen` : ''}.`;
+    if (stopReason) toastr.warning(`${summary} Gestoppt: ${stopReason}`, 'CCS: Nachholen', { timeOut: 12000 });
+    else toastr.success(summary, 'CCS: Nachholen', { timeOut: 8000 });
+    scheduleStatusSync();
+    maybeSuggestCompaction();
+}
+
 async function onCompactClicked() {
     const ctx = getContext();
     if (!ctx) return;
@@ -1138,6 +1259,7 @@ function bindUI() {
     $('#ccs-delete-btn').on('click', onDeleteClicked);
     $('#ccs-compact-btn').on('click', onCompactClicked);
     $('#ccs-versions-btn').on('click', onVersionsClicked);
+    $('#ccs-catchup-btn').on('click', () => onCatchUpClicked());
 
     // Director-Agent Einstellungen
     const $directorEnabled = $('#ccs-director-enabled');
@@ -1256,6 +1378,7 @@ function addWandButtons() {
     menu.appendChild(makeBtn('ccs-wand-view', 'fa-magnifying-glass', 'CCS: Brain anzeigen', onViewClicked));
     menu.appendChild(makeBtn('ccs-wand-compact', 'fa-compress', 'CCS: Gedächtnis verdichten', onCompactClicked));
     menu.appendChild(makeBtn('ccs-wand-versions', 'fa-clock-rotate-left', 'CCS: Versionen', onVersionsClicked));
+    menu.appendChild(makeBtn('ccs-wand-catchup', 'fa-forward-fast', 'CCS: Chat nachholen', () => onCatchUpClicked()));
 
     console.log(`${LOG_PREFIX} wand buttons added to extensions menu`);
 }
@@ -1298,6 +1421,11 @@ async function init() {
             name: 'ccs-compact',
             callback: () => { onCompactClicked(); return ''; },
             helpString: 'CCS: Ältere Chronik und Schlüsselmomente verdichten (mit Vorschau).',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'ccs-catchup',
+            callback: () => { onCatchUpClicked(); return ''; },
+            helpString: 'CCS: Alle noch nicht analysierten Nachrichten blockweise ins Brain übernehmen.',
         }));
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'ccs-versions',

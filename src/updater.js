@@ -282,7 +282,7 @@ export function migrateLegacyBrain(xmlString) {
 // =============================================================================
 
 // Caps & Konstanten laut Spec §4 / §9.4.
-const SCAN_WINDOW_MAX = 30;
+export const SCAN_WINDOW_MAX = 30;
 // Großzügig, weil Reasoning-Modelle (z.B. DeepSeek) ihr Nachdenken vom selben
 // Budget abziehen – bei 6000 blieb für das JSON teils nichts übrig.
 const UPDATE_RESPONSE_LENGTH = 16000;
