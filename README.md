@@ -1,6 +1,6 @@
 # Curated Context System (CCS)
 
-**Status:** Alpha / Phase 6 (Status-Sync, Kontinuitäts-Wächter, Bedeutungs-Suche, Fäden-Register)
+**Status:** Alpha / Phase 7 (Aktivierungs-Gedächtnis, Status-Sync, Kontinuitäts-Wächter, Bedeutungs-Suche)
 
 SillyTavern-Extension für autor-kuratiertes Langzeitgedächtnis beim LLM-Roleplay. Der Autor kuriert ein *Living Document* (XML pro Chat); die Extension injiziert pro Turn deterministisch den relevanten Kontext.
 
@@ -9,6 +9,7 @@ SillyTavern-Extension für autor-kuratiertes Langzeitgedächtnis beim LLM-Rolepl
 - **Brain initialisieren** – erzeugt das XML-Brain aus Character Card + Lorebook-Quellen via LLM.
 - **Brain updaten** – analysiert neue Chat-Messages in Blöcken (älteste zuerst, nichts geht verloren) und schlägt strukturierte Updates vor. Reviewbare Card-UI mit Checkbox pro Vorschlag, Inline-Edit, Referenz-Validation. Obergrenzen pro Kategorie, keine LLM-Pins.
 - **Auto-Update** – alle N Nachrichten im Hintergrund; Vorschläge werden gesammelt zur Freigabe angeboten oder ohne Rückfrage übernommen.
+- **Aktivierungs-Gedächtnis** – das Brain als Netz: Nennungen, Anwesende und Treffer der Bedeutungs-Suche aktivieren Einträge, die Aktivierung breitet sich über Verbindungen aus (wer war wo, wer steht zu wem) und klingt mit jeder Nachricht ab. In den Kontext kommt, was stark genug aktiv ist; der Hub zeigt unter „Gerade im Kontext“, warum. Einträge lassen sich stummschalten (z.B. Geheimnisse).
 - **Injektion** – kompakter Text statt XML, aufgeteilt in den stabilen Kanon (oben im Prompt) und die aktuelle Lage (nahe der letzten Nachricht). Statische Felder der Hauptfigur werden nicht doppelt zur Character Card geschickt. Relevanz über Name/Alias als ganzes Wort in den letzten N Nachrichten plus Szene.
 - **Verdichten** – fasst ältere Chronik-Einträge zu Kapiteln zusammen und führt ältere Schlüsselmomente zusammen (mit Vorschau).
 - **Versionen** – die letzten 8 Brain-Stände pro Chat, wiederherstellbar (auch nach Löschen).

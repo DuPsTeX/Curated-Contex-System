@@ -118,8 +118,8 @@ function textOf(m) {
 }
 
 function buildCanon(brainXml, chat, messageId) {
-    const recent = chat.slice(Math.max(0, messageId - RECENT_CONTEXT), messageId + 1).map(textOf).join('\n');
-    const filtered = filterBrainByRelevance(brainXml, recent, { includeHistory: true });
+    const messages = chat.slice(Math.max(0, messageId - RECENT_CONTEXT), messageId + 1).filter(m => m && !m.is_system).map(textOf);
+    const filtered = filterBrainByRelevance(brainXml, '', { includeHistory: true, messages });
     const { core, state } = renderCompact(filtered, { dedupeCard: false });
     return [core, state].filter(Boolean).join('\n\n');
 }

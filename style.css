@@ -958,3 +958,47 @@ body.ccs-guard-holding #chat .last_mes[is_user="false"] .mes_text {
 .ccs-guard-popup {
     text-align: left;
 }
+
+/* Aktivierung & Stummschalten */
+.ccs-hub-silenced {
+    opacity: 0.45;
+}
+
+.ccs-hub-silenced-icon {
+    margin-right: 0.3em;
+}
+
+.ccs-hub-active-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+}
+
+.ccs-hub-active-type {
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+.ccs-hub-active-score {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+.ccs-hub-active-bar {
+    height: 3px;
+    margin: 3px 0;
+    border-radius: 2px;
+    background: var(--grey30, #444);
+    overflow: hidden;
+}
+
+.ccs-hub-active-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--SmartThemeQuoteColor, #e18a24);
+}
+
+.ccs-editor-silence {
+    margin-top: 0.5em;
+}

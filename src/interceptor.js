@@ -10,7 +10,8 @@
 
 import * as storage from './storage.js';
 import * as director from './director.js';
-import { selectRelevant, renderCompact } from './render.js';
+import { renderCompact } from './render.js';
+import { computeActivation, scoreOf, isSilenced, THRESHOLDS } from './activation.js';
 import { readCursor, resolveCursor } from './cursor.js';
 import { stripStatus } from './status.js';
 import * as semantic from './semantic.js';
@@ -57,24 +58,28 @@ export function buildStateText(stateText) {
 }
 
 /**
- * Filtert das Brain-XML auf die relevanten Teile.
+ * Filtert das Brain-XML auf die relevanten Teile – per Aktivierung (activation.js):
+ * Nennungen in den jüngsten Nachrichten, Anwesende, Szenen-Ort und Treffer der
+ * Bedeutungs-Suche aktivieren Knoten; die Aktivierung breitet sich über die
+ * Verbindungen aus; was über der Schwelle liegt, kommt in den Kontext.
  *
  * Immer enthalten: world_rules, Haupt-Charakter, scene, pinned, aktive Arcs,
- * history (wenn includeHistory).
- * Relevanz-abhängig (siehe render.selectRelevant): NPCs, Orte, Beziehungen
- * (beide Seiten relevant), Key-Moments (Person aktiv + Ortsbezug oder high/critical).
- * Charakterbilder (<image>, Base64) werden immer entfernt – die gehören nie in den Prompt.
+ * Chronik-Kapitel und die jüngsten Chronik-Einträge.
+ * Beziehungen: wenn beide Seiten im Kontext sind.
+ * Nie enthalten: stummgeschaltete Einträge (silenced="1") und Charakterbilder.
+ * Behaltene Momente/Chronik-Einträge tragen ihre Aktivierung als Attribut `act`
+ * (trimToBudget kürzt danach die schwächsten zuerst).
  *
  * @param {string} brainXml
- * @param {string} messagesText – jüngste Nachrichten (Relevanz-Fenster)
+ * @param {string} messagesText – jüngste Nachrichten als ein Text (Fallback, wenn opts.messages fehlt)
  * @param {object} [opts]
  * @param {boolean} [opts.includeHistory=true]
- * @param {Set<string>|null} [opts.forceIds] – IDs aus der Bedeutungs-Suche: diese
- *   Schlüsselmomente/Chronik-Einträge immer behalten. Ist das Set gesetzt, wird die
- *   Chronik auf Kapitel + Treffer + die jüngsten Einträge reduziert.
+ * @param {string[]} [opts.messages] – jüngste Nachrichten einzeln, älteste zuerst (fürs Abklingen)
+ * @param {Set<string>|null} [opts.forceIds] – IDs aus der Bedeutungs-Suche (immer behalten)
+ * @param {number} [opts.decay] – Abklingen pro Nachricht Alter
  * @returns {string} gefiltertes XML
  */
-export function filterBrainByRelevance(brainXml, messagesText, { includeHistory = true, forceIds = null } = {}) {
+export function filterBrainByRelevance(brainXml, messagesText, { includeHistory = true, messages = null, forceIds = null, decay } = {}) {
     if (!brainXml || !brainXml.trim()) return brainXml;
 
     const parser = new DOMParser();
@@ -84,73 +89,66 @@ export function filterBrainByRelevance(brainXml, messagesText, { includeHistory 
     const root = doc.documentElement;
     if (!root || root.nodeName !== 'brain') return brainXml;
 
-    const { mainName, chars: activeChars, locs: matchedLocs } = selectRelevant(root, messagesText || '');
-    const allRelevantChars = new Set(activeChars);
-    if (mainName) allRelevantChars.add(mainName);
+    const result = computeActivation(root, {
+        messages: Array.isArray(messages) ? messages : [messagesText || ''],
+        forceIds,
+        ...(Number.isFinite(decay) ? { decay } : {}),
+    });
+    const score = (key) => scoreOf(result, key);
 
-    console.log(`${LOG_PREFIX} filter: relevant chars=[${[...allRelevantChars].join(', ')}] locs=[${[...matchedLocs].join(', ')}]`);
+    const mainName = root.querySelector(':scope > characters > character[role="main"]')?.getAttribute('name') || '';
+    const relevantChars = new Set([...root.querySelectorAll(':scope > characters > character')]
+        .map(ch => ch.getAttribute('name'))
+        .filter(n => n && (n === mainName || score(`char:${n}`) >= THRESHOLDS.char)));
+    const relevantLocs = new Set([...root.querySelectorAll(':scope > locations > location')]
+        .map(l => l.getAttribute('name'))
+        .filter(n => n && score(`loc:${n}`) >= THRESHOLDS.loc));
+
+    console.log(`${LOG_PREFIX} filter: active chars=[${[...relevantChars].join(', ')}] locs=[${[...relevantLocs].join(', ')}]`);
 
     // Neues Dokument bauen (lang behalten – render.js wählt danach die Sprache)
     const filteredDoc = parser.parseFromString('<brain version="1"/>', 'application/xml');
     const out = filteredDoc.documentElement;
     if (root.getAttribute('lang')) out.setAttribute('lang', root.getAttribute('lang'));
     const clone = (el) => filteredDoc.importNode(el, true);
+    const container = (tag, items) => {
+        if (!items.length) return;
+        const c = filteredDoc.createElement(tag);
+        items.forEach(i => c.appendChild(i));
+        out.appendChild(c);
+    };
 
-    const wr = root.querySelector(':scope > world_rules');
-    if (wr && wr.children.length > 0) out.appendChild(clone(wr));
+    container('world_rules', [...root.querySelectorAll(':scope > world_rules > rule')].filter(r => !isSilenced(r)).map(clone));
 
-    const charsContainer = filteredDoc.createElement('characters');
+    const charsOut = filteredDoc.createElement('characters');
     for (const ch of root.querySelectorAll(':scope > characters > character')) {
-        if (allRelevantChars.has(ch.getAttribute('name'))) {
-            const c = clone(ch);
-            c.querySelectorAll(':scope > image').forEach(img => img.remove());
-            charsContainer.appendChild(c);
-        }
+        if (!relevantChars.has(ch.getAttribute('name'))) continue;
+        const c = clone(ch);
+        c.querySelectorAll(':scope > image').forEach(img => img.remove());
+        charsOut.appendChild(c);
     }
-    out.appendChild(charsContainer);
+    out.appendChild(charsOut);
 
-    if (matchedLocs.size > 0) {
-        const locsContainer = filteredDoc.createElement('locations');
-        for (const loc of root.querySelectorAll(':scope > locations > location')) {
-            if (matchedLocs.has(loc.getAttribute('name'))) locsContainer.appendChild(clone(loc));
-        }
-        out.appendChild(locsContainer);
-    }
+    container('locations', [...root.querySelectorAll(':scope > locations > location')]
+        .filter(l => relevantLocs.has(l.getAttribute('name')))
+        .map(clone));
 
-    // relationships: from UND to müssen relevant sein
-    const relsContainer = filteredDoc.createElement('relationships');
-    for (const rel of root.querySelectorAll(':scope > relationships > relationship')) {
-        if (allRelevantChars.has(rel.getAttribute('from')) && allRelevantChars.has(rel.getAttribute('to'))) {
-            relsContainer.appendChild(clone(rel));
-        }
-    }
-    if (relsContainer.children.length > 0) out.appendChild(relsContainer);
+    container('relationships', [...root.querySelectorAll(':scope > relationships > relationship')]
+        .filter(r => !isSilenced(r) && relevantChars.has(r.getAttribute('from')) && relevantChars.has(r.getAttribute('to')))
+        .map(clone));
 
-    // key_moments: mindestens eine Person aktiv (erwähnt/anwesend) UND
-    //   (a) <where> enthält Szenen-Ort oder einen relevanten Ort, ODER
-    //   (b) importance = critical/high
-    const sceneLocText = root.querySelector(':scope > scene > location')?.textContent?.trim().toLowerCase() || '';
-    const kmContainer = filteredDoc.createElement('key_moments');
-    for (const km of root.querySelectorAll(':scope > key_moments > key_moment')) {
-        if (forceIds?.has(km.getAttribute('id'))) {
-            kmContainer.appendChild(clone(km));
-            continue;
-        }
-        const personMatch = [...km.querySelectorAll('who > person')].some(p => activeChars.has(p.textContent?.trim()));
-        if (!personMatch) continue;
-        const importance = (km.getAttribute('importance') || '').toLowerCase();
-        const whereText = km.querySelector(':scope > where')?.textContent?.trim().toLowerCase() || '';
-        const locMatch = (sceneLocText && whereText.includes(sceneLocText))
-            || [...matchedLocs].some(ln => whereText.includes(ln.toLowerCase()));
-        if (locMatch || importance === 'critical' || importance === 'high') kmContainer.appendChild(clone(km));
-    }
-    if (kmContainer.children.length > 0) out.appendChild(kmContainer);
+    container('key_moments', [...root.querySelectorAll(':scope > key_moments > key_moment')]
+        .map((km, i) => ({ km, s: score(`km:${km.getAttribute('id') || i}`) }))
+        .filter(({ km, s }) => !isSilenced(km) && (forceIds?.has(km.getAttribute('id')) || s >= THRESHOLDS.km))
+        .map(({ km, s }) => {
+            const c = clone(km);
+            c.setAttribute('act', s.toFixed(3));
+            return c;
+        }));
 
-    const arcsContainer = filteredDoc.createElement('arcs');
-    for (const arc of root.querySelectorAll(':scope > arcs > arc')) {
-        if (arc.getAttribute('status') === 'active') arcsContainer.appendChild(clone(arc));
-    }
-    if (arcsContainer.children.length > 0) out.appendChild(arcsContainer);
+    container('arcs', [...root.querySelectorAll(':scope > arcs > arc')]
+        .filter(a => !isSilenced(a) && a.getAttribute('status') === 'active')
+        .map(clone));
 
     const scene = root.querySelector(':scope > scene');
     if (scene && scene.children.length > 0) out.appendChild(clone(scene));
@@ -159,18 +157,19 @@ export function filterBrainByRelevance(brainXml, messagesText, { includeHistory 
     if (pinned && pinned.children.length > 0) out.appendChild(clone(pinned));
 
     if (includeHistory) {
-        const history = root.querySelector(':scope > history');
-        if (history && history.children.length > 0) {
-            const h = clone(history);
-            if (forceIds) {
-                const entries = [...h.querySelectorAll(':scope > entry')];
-                entries.forEach((e, i) => {
-                    const keep = e.getAttribute('kind') === 'chapter' || forceIds.has(e.getAttribute('id')) || i >= entries.length - RECENT_HISTORY_KEEP;
-                    if (!keep) e.remove();
-                });
-            }
-            out.appendChild(h);
-        }
+        const entries = [...root.querySelectorAll(':scope > history > entry')];
+        container('history', entries
+            .map((e, i) => ({ e, i, s: score(`hist:${e.getAttribute('id') || i}`) }))
+            .filter(({ e, i, s }) => !isSilenced(e) && (
+                e.getAttribute('kind') === 'chapter'
+                || i >= entries.length - RECENT_HISTORY_KEEP
+                || forceIds?.has(e.getAttribute('id'))
+                || s >= THRESHOLDS.hist))
+            .map(({ e, s }) => {
+                const c = clone(e);
+                c.setAttribute('act', s.toFixed(3));
+                return c;
+            }));
     }
 
     return new XMLSerializer().serializeToString(filteredDoc);
@@ -201,12 +200,19 @@ export function trimToBudget(filteredXml, tokenBudget, measure = (xml) => xml.le
 
     const size = () => measure(new XMLSerializer().serializeToString(doc));
     const kmPriority = { low: 0, medium: 1, high: 2, critical: 3 };
-    const candidates = [
-        ...[...root.querySelectorAll(':scope > history > entry')].slice(0, -1),
-        ...[...root.querySelectorAll(':scope > key_moments > key_moment')].sort((a, b) =>
-            (kmPriority[(a.getAttribute('importance') || 'low').toLowerCase()] || 0)
-            - (kmPriority[(b.getAttribute('importance') || 'low').toLowerCase()] || 0)),
-    ];
+    const history = [...root.querySelectorAll(':scope > history > entry')].slice(0, -1);
+    const moments = [...root.querySelectorAll(':scope > key_moments > key_moment')];
+    // Mit Aktivierungswerten (act) fliegt das am schwächsten Aktivierte zuerst raus,
+    // sonst: älteste Chronik, dann unwichtigste Momente.
+    const hasAct = [...history, ...moments].some(e => e.hasAttribute('act'));
+    const candidates = hasAct
+        ? [...history, ...moments].sort((a, b) => Number(a.getAttribute('act') || 0) - Number(b.getAttribute('act') || 0))
+        : [
+            ...history,
+            ...moments.sort((a, b) =>
+                (kmPriority[(a.getAttribute('importance') || 'low').toLowerCase()] || 0)
+                - (kmPriority[(b.getAttribute('importance') || 'low').toLowerCase()] || 0)),
+        ];
 
     let removed = 0;
     for (const el of candidates) {
@@ -377,11 +383,11 @@ export async function runAlwaysCore({ ctx, settings, type, chat: genChat }) {
             if (stripped) console.log(`${LOG_PREFIX} interceptor: stripped status blocks from ${stripped} older messages`);
         }
 
-        // Relevanz-Fenster: die letzten N narrativen Nachrichten. Mehr als 2, damit
-        // eine Figur nicht sofort aus dem Kontext fällt, wenn sie kurz nicht genannt wird.
+        // Gedächtnis-Fenster: die letzten N narrativen Nachrichten – einzeln, damit
+        // ältere Nennungen in der Aktivierung schwächer zählen (Abklingen).
         const narrative = chat.filter(m => m && m.is_system !== true);
-        const windowSize = Math.max(1, settings.relevanceWindow || 6);
-        const recentText = narrative.slice(-windowSize).map(m => String(m.mes ?? '')).join('\n');
+        const windowSize = Math.max(1, settings.relevanceWindow || 12);
+        const recentMessages = narrative.slice(-windowSize).map(m => String(m.mes ?? ''));
 
         const renderOpts = {
             dedupeCard: settings.dedupeCard !== false,
@@ -403,7 +409,12 @@ export async function runAlwaysCore({ ctx, settings, type, chat: genChat }) {
             }
         }
 
-        let filtered = filterBrainByRelevance(brain, recentText, { includeHistory: settings.historyEnabled !== false, forceIds });
+        let filtered = filterBrainByRelevance(brain, '', {
+            includeHistory: settings.historyEnabled !== false,
+            messages: recentMessages,
+            forceIds,
+            decay: settings.activationDecay,
+        });
         filtered = trimToBudget(filtered, settings.ccsTokenBudget ?? 0, measure);
         const { core, state } = renderCompact(filtered, renderOpts);
 

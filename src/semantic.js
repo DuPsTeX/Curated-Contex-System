@@ -1,6 +1,6 @@
 // Semantic: Bedeutungs-Suche über Schlüsselmomente und Chronik.
 //
-// Die Namens-Relevanz (render.selectRelevant) findet nur, was beim Namen genannt
+// Die Aktivierung (activation.js) startet bei Namen und Orten, die genannt
 // wird. „Weißt du noch, wie du mich verraten hast?“ enthält keinen Namen – die
 // passende Erinnerung findet nur eine Suche nach Bedeutung.
 //
@@ -45,11 +45,13 @@ export function memoryItems(brainXml) {
     if (doc.querySelector('parsererror') || !root || root.nodeName !== 'brain') return [];
     const items = [];
     for (const km of root.querySelectorAll(':scope > key_moments > key_moment')) {
+        if (km.getAttribute('silenced') === '1') continue;
         const who = [...km.querySelectorAll(':scope > who > person')].map(p => p.textContent.trim()).join(', ');
         const t = [text(km, 'summary'), text(km, 'impact'), [text(km, 'where'), who].filter(Boolean).join(' – ')].filter(Boolean).join(' ');
         if (t) items.push({ id: km.getAttribute('id'), text: t });
     }
     for (const h of root.querySelectorAll(':scope > history > entry')) {
+        if (h.getAttribute('silenced') === '1') continue;
         const t = [h.getAttribute('scene') || '', text(h, 'summary'), text(h, 'key_outcome')].filter(Boolean).join(' ');
         if (t) items.push({ id: h.getAttribute('id'), text: t });
     }

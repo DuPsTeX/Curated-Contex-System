@@ -69,10 +69,16 @@
                 </div>
 
                 <div class="ccs-token-row">
-                    <label for="ccs-relevance-window"><strong>Relevanz-Fenster</strong></label>
-                    <input id="ccs-relevance-window" type="number" min="1" step="1" value="6" class="text_pole" style="width:70px" />
+                    <label for="ccs-relevance-window"><strong>Gedächtnis-Fenster</strong></label>
+                    <input id="ccs-relevance-window" type="number" min="1" step="1" value="12" class="text_pole" style="width:70px" />
                     <span>Nachrichten</span>
-                    <small>Figuren und Orte, die in so vielen letzten Nachrichten genannt werden (Name oder Alias), kommen in den Kontext. Anwesende Figuren immer.</small>
+                    <small>Nennungen in so vielen letzten Nachrichten aktivieren Figuren und Orte; die Aktivierung breitet sich über Verbindungen aus (Momente, Beziehungen, Fäden). Anwesende und der Szenen-Ort sind immer aktiv.</small>
+                </div>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-activation-decay"><strong>Abklingen</strong></label>
+                    <input id="ccs-activation-decay" type="number" min="0.3" max="0.95" step="0.05" value="0.75" class="text_pole" style="width:70px" />
+                    <small>Wie stark eine Nennung pro Nachricht Abstand nachlässt. 0,75: nach ~4 Nachrichten ohne Erwähnung fällt eine Figur aus dem Kontext; höher = längeres Gedächtnis.</small>
                 </div>
 
                 <label class="checkbox_label" for="ccs-semantic" title="Findet passende Schlüsselmomente und Chronik-Einträge nach Bedeutung – auch ohne Namensnennung. Die Chronik im Prompt wird dann auf Kapitel, Treffer und die jüngsten Einträge reduziert. Nutzt das lokale Embedding-Modell von SillyTavern (config.yaml: extensions.models.embedding).">

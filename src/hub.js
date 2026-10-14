@@ -7,6 +7,8 @@
 import * as storage from './storage.js';
 import * as chardetail from './chardetail.js';
 import * as editor from './editor.js';
+import { computeActivation, scoreOf, explain, THRESHOLDS } from './activation.js';
+import { stripStatus } from './status.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -14,6 +16,7 @@ let panel = null;
 let visible = false;
 
 const CATEGORY_ICONS = {
+    active: 'fa-bolt',
     scene: 'fa-film',
     characters: 'fa-users',
     relationships: 'fa-heart',
@@ -26,6 +29,7 @@ const CATEGORY_ICONS = {
 };
 
 const CATEGORY_LABELS = {
+    active: 'Gerade im Kontext',
     scene: 'Szene',
     characters: 'Charaktere',
     relationships: 'Beziehungen',
@@ -61,6 +65,35 @@ function refOf(node, index) {
     return id ? { id } : { index };
 }
 
+const TYPE_LABELS = { char: 'Figur', loc: 'Ort', km: 'Moment', hist: 'Chronik', rel: 'Beziehung', arc: 'Bogen' };
+const TYPE_THRESHOLD = { char: THRESHOLDS.char, loc: THRESHOLDS.loc, km: THRESHOLDS.km, hist: THRESHOLDS.hist };
+
+/**
+ * Was ist gerade aktiv – und warum? Gleiche Rechnung wie der Interceptor
+ * (ohne Bedeutungs-Suche, die braucht einen Server-Aufruf).
+ */
+function activeNow(root) {
+    const ctx = SillyTavern.getContext();
+    const s = ctx.extensionSettings?.['curated-context-system'] || {};
+    const narrative = (ctx.chat || []).filter(m => m && !m.is_system);
+    const messages = narrative.slice(-Math.max(1, s.relevanceWindow || 12)).map(m => stripStatus(String(m.mes ?? '')));
+    const result = computeActivation(root, { messages, ...(Number.isFinite(s.activationDecay) ? { decay: s.activationDecay } : {}) });
+    return [...result.graph.nodes.values()]
+        .filter(n => TYPE_THRESHOLD[n.type] !== undefined)
+        .map(n => ({ type: n.type, label: n.label, score: scoreOf(result, n.key), why: explain(result, n.key) }))
+        .filter(n => n.score >= TYPE_THRESHOLD[n.type])
+        .sort((a, b) => b.score - a.score);
+}
+
+function buildActiveCard(item) {
+    const d = el('div', { cls: 'ccs-hub-card ccs-hub-active' });
+    const pct = Math.round(Math.min(1, item.score) * 100);
+    d.innerHTML = `<div class="ccs-hub-active-row"><span class="ccs-hub-active-type">${TYPE_LABELS[item.type]}</span> <b>${esc(item.label)}</b><span class="ccs-hub-active-score">${item.score.toFixed(2)}</span></div>`
+        + `<div class="ccs-hub-active-bar"><span style="width:${pct}%"></span></div>`
+        + `<div class="ccs-hub-sub">${esc(item.why)}</div>`;
+    return d;
+}
+
 function el(tag, opts = {}) {
     const e = document.createElement(tag);
     if (opts.cls) e.className = opts.cls;
@@ -80,6 +113,12 @@ function parseBrain(xml) {
     const text = (el) => (el && el.textContent ? el.textContent.trim() : '');
 
     const data = {};
+    try {
+        data.active = activeNow(root);
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} hub: activation view failed`, err);
+        data.active = [];
+    }
 
     // Scene
     const scene = root.querySelector(':scope > scene');
@@ -94,8 +133,10 @@ function parseBrain(xml) {
     }
 
     // Characters
+    const silenced = (e) => e.getAttribute('silenced') === '1';
     data.characters = [...root.querySelectorAll(':scope > characters > character')].map((ch, i) => ({
         ref: refOf(ch, i),
+        silenced: silenced(ch),
         name: ch.getAttribute('name') || '?',
         role: ch.getAttribute('role') || 'npc',
         state: text(ch.querySelector(':scope > current_state')),
@@ -115,6 +156,7 @@ function parseBrain(xml) {
     // Locations
     data.locations = [...root.querySelectorAll(':scope > locations > location')].map((loc, i) => ({
         ref: refOf(loc, i),
+        silenced: silenced(loc),
         name: loc.getAttribute('name') || '?',
         desc: text(loc.querySelector(':scope > description')),
         atmosphere: text(loc.querySelector(':scope > atmosphere')),
@@ -123,6 +165,7 @@ function parseBrain(xml) {
     // Relationships — paired bidirectional
     const rawRels = [...root.querySelectorAll(':scope > relationships > relationship')].map((rel, i) => ({
         ref: refOf(rel, i),
+        silenced: silenced(rel),
         from: rel.getAttribute('from') || '?',
         to: rel.getAttribute('to') || '?',
         current: text(rel.querySelector(':scope > current')),
@@ -143,6 +186,7 @@ function parseBrain(xml) {
     // Key Moments
     data.key_moments = [...root.querySelectorAll(':scope > key_moments > key_moment')].map((km, i) => ({
         ref: refOf(km, i),
+        silenced: silenced(km),
         summary: text(km.querySelector(':scope > summary')),
         importance: km.getAttribute('importance') || 'low',
         where: text(km.querySelector(':scope > where')),
@@ -151,17 +195,19 @@ function parseBrain(xml) {
     // Arcs
     data.arcs = [...root.querySelectorAll(':scope > arcs > arc')].map((arc, i) => ({
         ref: refOf(arc, i),
+        silenced: silenced(arc),
         title: text(arc.querySelector(':scope > title')),
         status: arc.getAttribute('status') || 'active',
         tension: text(arc.querySelector(':scope > tension')),
     }));
 
     // World Rules
-    data.world_rules = [...root.querySelectorAll(':scope > world_rules > rule')].map((r, i) => ({ ref: { index: i }, text: text(r) }));
+    data.world_rules = [...root.querySelectorAll(':scope > world_rules > rule')].map((r, i) => ({ ref: { index: i }, text: text(r), silenced: silenced(r) }));
 
     // History
     data.history = [...root.querySelectorAll(':scope > history > entry')].map((entry, i) => ({
         ref: refOf(entry, i),
+        silenced: silenced(entry),
         chapter: entry.getAttribute('kind') === 'chapter',
         scene: entry.getAttribute('scene') || '',
         summary: text(entry.querySelector(':scope > summary')),
@@ -224,6 +270,7 @@ function buildSceneCard(item) {
 
 function buildCharCard(ch) {
     const d = el('div', { cls: 'ccs-hub-card ccs-hub-card--char' });
+    if (ch.silenced) d.classList.add('ccs-hub-silenced');
     const star = ch.role === 'main' ? ' <i class="fa-solid fa-star" style="color:gold"></i>' : '';
     let html = '';
     if (ch.image && ch.image.startsWith('data:image')) {
@@ -247,7 +294,7 @@ function buildLocCard(loc) {
     if (loc.desc) html += `<div class="ccs-hub-sub">${esc(loc.desc)}</div>`;
     if (loc.atmosphere) html += `<div class="ccs-hub-sub ccs-hub-mood">${esc(loc.atmosphere)}</div>`;
     d.innerHTML = html;
-    return editable(d, 'location', loc.ref);
+    return editable(d, 'location', loc.ref, loc.silenced);
 }
 
 function buildRelCard(pair) {
@@ -255,7 +302,7 @@ function buildRelCard(pair) {
     const nameLabel = pair.names.join(' ↔ ');
     d.appendChild(el('div', { cls: 'ccs-hub-name', text: nameLabel }));
     for (const dir of pair.dirs) {
-        d.appendChild(editable(el('div', { cls: 'ccs-hub-sub', text: `${dir.from} → ${dir.to}: ${dir.current}` }), 'relationship', dir.ref));
+        d.appendChild(editable(el('div', { cls: 'ccs-hub-sub', text: `${dir.from} → ${dir.to}: ${dir.current}` }), 'relationship', dir.ref, dir.silenced));
     }
     return d;
 }
@@ -268,7 +315,7 @@ function buildKmCard(km) {
     html += esc(km.summary || '(keine Zusammenfassung)');
     if (km.where) html += ` <span class="ccs-hub-sub">— ${esc(km.where)}</span>`;
     d.innerHTML = html;
-    return editable(d, 'key_moment', km.ref);
+    return editable(d, 'key_moment', km.ref, km.silenced);
 }
 
 function buildArcCard(arc) {
@@ -276,7 +323,7 @@ function buildArcCard(arc) {
     const statusColors = { active: '#4caf50', resolved: '#2196f3', abandoned: '#95a5a6' };
     const color = statusColors[arc.status] || '#95a5a6';
     d.innerHTML = `<span class="ccs-hub-arc-badge" style="background:${color}">${esc(arc.status)}</span> <b>${esc(arc.title)}</b>${arc.tension ? ` <span class="ccs-hub-sub">— ${esc(arc.tension)}</span>` : ''}`;
-    return editable(d, 'arc', arc.ref);
+    return editable(d, 'arc', arc.ref, arc.silenced);
 }
 
 function buildHistoryCard(h) {
@@ -286,18 +333,22 @@ function buildHistoryCard(h) {
     if (h.summary) html += `<div class="ccs-hub-sub">${esc(h.summary)}</div>`;
     if (h.outcome) html += `<div class="ccs-hub-state">→ ${esc(h.outcome)}</div>`;
     d.innerHTML = html;
-    return editable(d, 'history', h.ref);
+    return editable(d, 'history', h.ref, h.silenced);
 }
 
 function buildTextCard(item, type) {
     const d = el('div', { cls: 'ccs-hub-card' });
     d.textContent = item.text;
-    return editable(d, type, item.ref);
+    return editable(d, type, item.ref, item.silenced);
 }
 
 /** Macht eine Karte klickbar → Editor für diesen Eintrag. */
-function editable(node, type, ref) {
+function editable(node, type, ref, silencedFlag) {
     node.classList.add('ccs-hub-editable');
+    if (silencedFlag) {
+        node.classList.add('ccs-hub-silenced');
+        node.insertAdjacentHTML('afterbegin', '<i class="fa-solid fa-volume-xmark ccs-hub-silenced-icon" title="Stummgeschaltet – nie im Kontext"></i> ');
+    }
     node.title = 'Klicken zum Bearbeiten';
     node.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -339,6 +390,7 @@ function buildPanel(data) {
         content.appendChild(el('div', { cls: 'ccs-hub-empty', text: 'Kein Brain vorhanden. Erst initialisieren.' }));
     } else {
         const sections = [
+            { key: 'active', items: data.active || [], builder: buildActiveCard },
             { key: 'scene', items: data.scene ? [data.scene] : [], builder: buildSceneCard },
             { key: 'characters', items: data.characters || [], builder: buildCharCard },
             { key: 'relationships', items: data.relationships || [], builder: buildRelCard },

@@ -55,7 +55,8 @@ const DEFAULT_SETTINGS = {
     autoUpdateAccept: false,
     dedupeCard: true,
     stateDepth: 1,
-    relevanceWindow: 6,
+    relevanceWindow: 12,
+    activationDecay: 0.75,
     statusSync: true,
     statusStripOld: true,
     guardMode: 'off',
@@ -1086,6 +1087,17 @@ function bindUI() {
 
     bindNumber('#ccs-state-depth', 'stateDepth', 0);
     bindNumber('#ccs-relevance-window', 'relevanceWindow', 1);
+
+    const $decay = $('#ccs-activation-decay');
+    $decay.val(settings.activationDecay);
+    $decay.on('change', function () {
+        const s = getSettings();
+        const v = parseFloat(String($(this).val()).replace(',', '.'));
+        s.activationDecay = Number.isFinite(v) && v >= 0.3 && v <= 0.95 ? v : DEFAULT_SETTINGS.activationDecay;
+        $(this).val(s.activationDecay);
+        saveSettings();
+        console.log(`${LOG_PREFIX} activationDecay set to ${s.activationDecay}`);
+    });
     bindNumber('#ccs-thread-age', 'threadAge', 5);
 
     $('#ccs-init-btn').on('click', onInitializeClicked);

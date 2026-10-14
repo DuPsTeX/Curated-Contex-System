@@ -81,39 +81,6 @@ export function namesOf(el) {
 }
 
 /**
- * Bestimmt die relevanten Figuren und Orte.
- *   • Figuren: Name/Alias kommt im Text vor ODER steht in scene/present
- *   • Orte: Name/Alias kommt im Text vor ODER ist der Szenen-Ort
- * Der Hauptcharakter ist immer relevant (separat geliefert).
- *
- * @param {Element} root – <brain>
- * @param {string} recentText – jüngste Nachrichten (Relevanz-Fenster)
- * @returns {{ mainName: string, chars: Set<string>, locs: Set<string> }}
- *   chars enthält nur aktiv erwähnte/anwesende Namen (main nur, wenn erwähnt/anwesend)
- */
-export function selectRelevant(root, recentText) {
-    const mainName = root.querySelector(':scope > characters > character[role="main"]')?.getAttribute('name') || '';
-    const sceneEl = root.querySelector(':scope > scene');
-    const present = texts(sceneEl?.querySelector(':scope > present'), 'person');
-    const sceneLoc = text(sceneEl, 'location');
-
-    const chars = new Set();
-    for (const ch of root.querySelectorAll(':scope > characters > character')) {
-        const names = namesOf(ch);
-        const isPresent = present.some(p => names.some(n => n.toLowerCase() === p.toLowerCase()));
-        if (isPresent || names.some(n => mentions(recentText, n))) chars.add(ch.getAttribute('name'));
-    }
-
-    const locs = new Set();
-    for (const loc of root.querySelectorAll(':scope > locations > location')) {
-        const names = namesOf(loc);
-        const isScene = sceneLoc && names.some(n => n.toLowerCase() === sceneLoc.toLowerCase() || mentions(sceneLoc, n));
-        if (isScene || names.some(n => mentions(recentText, n))) locs.add(loc.getAttribute('name'));
-    }
-    return { mainName, chars, locs };
-}
-
-/**
  * Kompakter Text aus einem (bereits gefilterten) Brain-XML.
  * @param {string} brainXml
  * @param {object} [opts]

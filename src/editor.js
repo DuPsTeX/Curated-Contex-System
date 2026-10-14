@@ -144,7 +144,7 @@ function writeValues(doc, type, el, v) {
     }
 }
 
-function buildForm(type, values, { isNew, canDelete }) {
+function buildForm(type, values, { isNew, canDelete, canSilence, silenced }) {
     const t = TYPES[type];
     const form = document.createElement('div');
     form.className = 'ccs-editor-form';
@@ -193,6 +193,20 @@ function buildForm(type, values, { isNew, canDelete }) {
         addRow(key, input);
     }
 
+    let silenceBox = null;
+    if (canSilence) {
+        const label = document.createElement('label');
+        label.className = 'checkbox_label ccs-editor-silence';
+        label.title = 'Der Eintrag bleibt im Brain, kommt aber nie in den Kontext der Erzähl-KI – z.B. Geheimnisse, die erst später herauskommen sollen.';
+        silenceBox = document.createElement('input');
+        silenceBox.type = 'checkbox';
+        silenceBox.checked = !!silenced;
+        const span = document.createElement('span');
+        span.textContent = 'Stummschalten – nie in den Kontext';
+        label.append(silenceBox, span);
+        form.appendChild(label);
+    }
+
     let deleteBox = null;
     if (canDelete) {
         const label = document.createElement('label');
@@ -206,7 +220,36 @@ function buildForm(type, values, { isNew, canDelete }) {
     }
 
     const collect = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, String(el.value ?? '').trim()]));
-    return { form, collect, isDelete: () => !!deleteBox?.checked, inputs };
+    return { form, collect, isDelete: () => !!deleteBox?.checked, isSilenced: () => !!silenceBox?.checked, inputs };
+}
+
+/** Bedeutungstragende Wörter (≥ 4 Buchstaben) eines Textes. */
+function words(s) {
+    return new Set((String(s || '').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || []));
+}
+
+/**
+ * Andere Einträge mit ähnlichem Inhalt. Wer ein Geheimnis stummschaltet, muss
+ * wissen, ob es noch woanders steht (z.B. zusätzlich in der Chronik).
+ * @returns {string[]} Beschreibungen der ähnlichen Einträge
+ */
+function similarEntries(root, target) {
+    const own = words(target.textContent);
+    if (own.size < 4) return [];
+    const candidates = root.querySelectorAll(':scope > key_moments > key_moment, :scope > history > entry, :scope > world_rules > rule, :scope > pinned > pin, :scope > relationships > relationship');
+    const out = [];
+    for (const el of candidates) {
+        if (el === target || el.getAttribute('silenced') === '1') continue;
+        const other = words(el.textContent);
+        let shared = 0;
+        for (const w of own) if (other.has(w)) shared++;
+        if (shared / Math.min(own.size, other.size || 1) >= 0.4) {
+            const kind = { key_moment: 'Schlüsselmoment', entry: 'Chronik', rule: 'Weltregel', pin: 'Pin', relationship: 'Beziehung' }[el.nodeName] || el.nodeName;
+            const label = el.getAttribute('scene') || el.querySelector(':scope > summary')?.textContent || el.textContent;
+            out.push(`${kind}: „${String(label).trim().slice(0, 60)}“`);
+        }
+    }
+    return out;
 }
 
 async function showEditor(type, ref, onSaved) {
@@ -229,7 +272,9 @@ async function showEditor(type, ref, onSaved) {
     }
     const canDelete = !isNew && !t.single && !(type === 'character' && el.getAttribute('role') === 'main');
     const original = readValues(type, el);
-    const ui = buildForm(type, original, { isNew, canDelete });
+    const isMainChar = type === 'character' && el?.getAttribute('role') === 'main';
+    const canSilence = !t.single && type !== 'pin' && !isMainChar;
+    const ui = buildForm(type, original, { isNew, canDelete, canSilence, silenced: el?.getAttribute('silenced') === '1' });
 
     const required = t.text ? ['text'] : (t.nameAttr ? [t.nameAttr] : []).concat(type === 'relationship' ? ['from', 'to'] : []);
     const choice = await ctx.callGenericPopup(ui.form, ctx.POPUP_TYPE.CONFIRM, '', {
@@ -264,6 +309,7 @@ async function showEditor(type, ref, onSaved) {
         if (type === 'character') created.setAttribute('role', 'npc');
         if (type === 'arc' && !values.status) values.status = 'active';
         writeValues(doc, type, created, values);
+        if (ui.isSilenced()) created.setAttribute('silenced', '1');
         if (type === 'character') created.querySelectorAll('[updated]').forEach(e => e.removeAttribute('updated'));
         container.appendChild(created);
         label = `${t.title} angelegt`;
@@ -274,12 +320,20 @@ async function showEditor(type, ref, onSaved) {
             target.remove();
             label = `${t.title} gelöscht`;
         } else {
-            if (JSON.stringify(values) === JSON.stringify(readValues(type, target))) {
+            const silenceChanged = canSilence && ui.isSilenced() !== (target.getAttribute('silenced') === '1');
+            const valuesChanged = JSON.stringify(values) !== JSON.stringify(readValues(type, target));
+            if (!valuesChanged && !silenceChanged) {
                 toastr.info('Keine Änderungen.', 'CCS');
                 return;
             }
-            writeValues(doc, type, target, values);
-            label = `${t.title} bearbeitet`;
+            if (valuesChanged) writeValues(doc, type, target, values);
+            if (silenceChanged) {
+                if (ui.isSilenced()) target.setAttribute('silenced', '1');
+                else target.removeAttribute('silenced');
+            }
+            label = silenceChanged && !valuesChanged
+                ? `${t.title} ${ui.isSilenced() ? 'stummgeschaltet' : 'wieder aktiv'}`
+                : `${t.title} bearbeitet`;
         }
     }
 
@@ -288,6 +342,13 @@ async function showEditor(type, ref, onSaved) {
     if (!v.ok) throw new Error(`Ergebnis ungültig: ${v.error}`);
     await storage.saveLivingDocument(newXml, chatId, label);
     toastr.success(`${label}.`, 'CCS');
+    if (label.endsWith('stummgeschaltet') || (!isNew && ui.isSilenced())) {
+        const target = locate(parse(newXml).root, type, ref);
+        const similar = target ? similarEntries(target.ownerDocument.documentElement, target) : [];
+        if (similar.length) {
+            toastr.warning(`Ähnlicher Inhalt steht noch in: ${similar.join('; ')} – ggf. dort ebenfalls stummschalten.`, 'CCS: Geheimnis noch sichtbar', { timeOut: 15000 });
+        }
+    }
     console.log(`${LOG_PREFIX} editor: ${label}`);
     onSaved?.();
 }
