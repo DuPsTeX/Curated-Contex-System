@@ -16,6 +16,8 @@ const KEEP_RECENT_KM = 5;
 /** Ab so vielen älteren Einträgen lohnt sich ein Lauf. */
 const MIN_OLD_HISTORY = 2;
 const MIN_OLD_KM = 3;
+/** Ab so vielen Weltregeln werden sie beim Verdichten zusammengeführt. */
+const MIN_RULES = 8;
 const RESPONSE_LENGTH = 16000;
 
 const DEFAULT_COMPACT_SYSTEM_PROMPT = `You maintain the long-term memory of a roleplay story. You receive OLDER chronicle entries and OLDER key moments as JSON. Consolidate them so the memory stays small but nothing important is lost.
@@ -23,15 +25,17 @@ const DEFAULT_COMPACT_SYSTEM_PROMPT = `You maintain the long-term memory of a ro
 Return ONLY one JSON object, no prose, no markdown fences:
 {
   "chapters": [ { "title": "...", "summary": "...", "key_outcome": "...", "involved": ["..."] } ],
-  "key_moments": [ { "when": "...", "where": "...", "who": ["..."], "summary": "...", "importance": "low|medium|high|critical", "impact": "..." } ]
+  "key_moments": [ { "when": "...", "where": "...", "who": ["..."], "summary": "...", "importance": "low|medium|high|critical", "impact": "..." } ],
+  "world_rules": [ "..." ]
 }
 
 Rules:
 1. chapters: merge consecutive chronicle entries into chapters (roughly 3-6 entries each, fewer if there are only a few). summary = 2-4 dense sentences: who, where, what happened, what changed. Keep names and places exact. Drop trivia.
 2. key_moments: this list REPLACES all older key moments. Keep every critical moment. Keep high moments unless they are fully covered by a chapter. Merge moments that describe the same event. Drop low/medium moments that a chapter already covers.
-3. Never invent facts. Only use what is in the input.
-4. Write all text in the same language as the input. JSON keys and importance values stay English.
-5. Keep any internal deliberation brief and spend your output on the JSON.`;
+3. world_rules (only if the input contains world_rules): this list REPLACES them. Merge rules that state the same thing or overlap, drop pure restatements, keep every distinct fact. Never return more rules than you received.
+4. Never invent facts. Only use what is in the input.
+5. Write all text in the same language as the input. JSON keys and importance values stay English.
+6. Keep any internal deliberation brief and spend your output on the JSON.`;
 
 let cachedPrompt = null;
 
@@ -64,15 +68,19 @@ function parse(xml) {
 /**
  * Welche Einträge würden verdichtet?
  * @param {string} brainXml
- * @returns {{ oldHistory: Element[], oldKm: Element[], canCompact: boolean }}
+ * Stummgeschaltete Einträge bleiben unangetastet.
+ * @returns {{ oldHistory: Element[], oldKm: Element[], rules: Element[], canCompact: boolean }}
  */
 export function planCompaction(brainXml) {
     const { root } = parse(brainXml);
-    const history = [...root.querySelectorAll(':scope > history > entry')];
-    const kms = [...root.querySelectorAll(':scope > key_moments > key_moment')];
+    const live = (e) => e.getAttribute('silenced') !== '1';
+    const history = [...root.querySelectorAll(':scope > history > entry')].filter(live);
+    const kms = [...root.querySelectorAll(':scope > key_moments > key_moment')].filter(live);
+    const allRules = [...root.querySelectorAll(':scope > world_rules > rule')].filter(live);
     const oldHistory = history.slice(0, Math.max(0, history.length - KEEP_RECENT_HISTORY));
     const oldKm = kms.slice(0, Math.max(0, kms.length - KEEP_RECENT_KM));
-    return { oldHistory, oldKm, canCompact: oldHistory.length >= MIN_OLD_HISTORY || oldKm.length >= MIN_OLD_KM };
+    const rules = allRules.length >= MIN_RULES ? allRules : [];
+    return { oldHistory, oldKm, rules, canCompact: oldHistory.length >= MIN_OLD_HISTORY || oldKm.length >= MIN_OLD_KM || rules.length > 0 };
 }
 
 /**
@@ -83,7 +91,7 @@ export function planCompaction(brainXml) {
  * @returns {Promise<{ chapters: object[], moments: object[], oldHistoryCount: number, oldKmCount: number }>}
  */
 export async function runCompaction({ ctx, brainXml }) {
-    const { oldHistory, oldKm, canCompact } = planCompaction(brainXml);
+    const { oldHistory, oldKm, rules, canCompact } = planCompaction(brainXml);
     if (!canCompact) throw new Error('Zu wenig ältere Einträge – Verdichten lohnt sich noch nicht.');
 
     const input = {
@@ -101,6 +109,7 @@ export async function runCompaction({ ctx, brainXml }) {
             summary: text(km, 'summary'),
             impact: text(km, 'impact'),
         })),
+        ...(rules.length ? { world_rules: rules.map(r => r.textContent.trim()) } : {}),
     };
 
     const raw = await llm.generate(ctx, {
@@ -138,8 +147,16 @@ export async function runCompaction({ ctx, brainXml }) {
         throw new Error('Das Modell hat kritische Schlüsselmomente verworfen – nichts verändert.');
     }
 
-    console.log(`${LOG_PREFIX} compactor: history ${oldHistory.length} → ${chapters.length} chapters, key moments ${oldKm.length} → ${moments.length}`);
-    return { chapters, moments, oldHistoryCount: oldHistory.length, oldKmCount: oldKm.length };
+    // Weltregeln: nur übernehmen, wenn es wirklich weniger (aber nicht null) werden.
+    let newRules = null;
+    if (rules.length) {
+        const r = arr(json.world_rules);
+        if (r.length && r.length < rules.length) newRules = r;
+        else console.warn(`${LOG_PREFIX} compactor: world rules not reduced (${rules.length} → ${r.length}) – kept as they are`);
+    }
+
+    console.log(`${LOG_PREFIX} compactor: history ${oldHistory.length} → ${chapters.length} chapters, key moments ${oldKm.length} → ${moments.length}, rules ${rules.length} → ${newRules ? newRules.length : rules.length}`);
+    return { chapters, moments, rules: newRules, oldRuleCount: rules.length, oldHistoryCount: oldHistory.length, oldKmCount: oldKm.length };
 }
 
 /**
@@ -160,8 +177,15 @@ export function applyCompaction(brainXml, result) {
         return el;
     };
 
+    if (result.rules) {
+        const rulesEl = ensure('world_rules');
+        [...rulesEl.querySelectorAll(':scope > rule')].filter(r => r.getAttribute('silenced') !== '1').forEach(r => r.remove());
+        for (const text of result.rules) add(rulesEl, 'rule', text);
+    }
+
+    const live = (e) => e.getAttribute('silenced') !== '1';
     const history = ensure('history');
-    const oldHistory = [...history.querySelectorAll(':scope > entry')].slice(0, result.oldHistoryCount);
+    const oldHistory = [...history.querySelectorAll(':scope > entry')].filter(live).slice(0, result.oldHistoryCount);
     const historyAnchor = oldHistory.length ? oldHistory[oldHistory.length - 1].nextSibling : history.firstChild;
     oldHistory.forEach(e => e.remove());
     for (const c of result.chapters) {
@@ -176,7 +200,7 @@ export function applyCompaction(brainXml, result) {
     }
 
     const kmContainer = ensure('key_moments');
-    const oldKm = [...kmContainer.querySelectorAll(':scope > key_moment')].slice(0, result.oldKmCount);
+    const oldKm = [...kmContainer.querySelectorAll(':scope > key_moment')].filter(live).slice(0, result.oldKmCount);
     const kmAnchor = oldKm.length ? oldKm[oldKm.length - 1].nextSibling : kmContainer.firstChild;
     oldKm.forEach(e => e.remove());
     for (const m of result.moments) {

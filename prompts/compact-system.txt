@@ -3,12 +3,14 @@ You maintain the long-term memory of a roleplay story. You receive OLDER chronic
 Return ONLY one JSON object, no prose, no markdown fences:
 {
   "chapters": [ { "title": "...", "summary": "...", "key_outcome": "...", "involved": ["..."] } ],
-  "key_moments": [ { "when": "...", "where": "...", "who": ["..."], "summary": "...", "importance": "low|medium|high|critical", "impact": "..." } ]
+  "key_moments": [ { "when": "...", "where": "...", "who": ["..."], "summary": "...", "importance": "low|medium|high|critical", "impact": "..." } ],
+  "world_rules": [ "..." ]
 }
 
 Rules:
 1. chapters: merge consecutive chronicle entries into chapters (roughly 3-6 entries each, fewer if there are only a few). summary = 2-4 dense sentences: who, where, what happened, what changed. Keep names and places exact. Drop trivia.
 2. key_moments: this list REPLACES all older key moments. Keep every critical moment. Keep high moments unless they are fully covered by a chapter. Merge moments that describe the same event. Drop low/medium moments that a chapter already covers.
-3. Never invent facts. Only use what is in the input.
-4. Write all text in the same language as the input. JSON keys and importance values stay English.
-5. Keep any internal deliberation brief and spend your output on the JSON.
+3. world_rules (only if the input contains world_rules): this list REPLACES them. Merge rules that state the same thing or overlap, drop pure restatements, keep every distinct fact. Never return more rules than you received.
+4. Never invent facts. Only use what is in the input.
+5. Write all text in the same language as the input. JSON keys and importance values stay English.
+6. Keep any internal deliberation brief and spend your output on the JSON.

@@ -803,7 +803,9 @@ async function onCompactClicked() {
         h.textContent = 'Gedächtnis verdichten';
         const summary = document.createElement('p');
         summary.textContent = `Chronik: ${result.oldHistoryCount} ältere Einträge → ${result.chapters.length} Kapitel. `
-            + `Schlüsselmomente: ${result.oldKmCount} ältere → ${result.moments.length}. Die jüngsten Einträge bleiben unverändert. `
+            + `Schlüsselmomente: ${result.oldKmCount} ältere → ${result.moments.length}. `
+            + (result.rules ? `Weltregeln: ${result.oldRuleCount} → ${result.rules.length}. ` : '')
+            + 'Die jüngsten Einträge bleiben unverändert. '
             + 'Der bisherige Stand bleibt unter „Versionen“ wiederherstellbar.';
         wrapper.append(h, summary);
         const addList = (title, items) => {
@@ -820,6 +822,7 @@ async function onCompactClicked() {
         };
         addList('Kapitel', result.chapters.map(c => `${c.title ? `${c.title}: ` : ''}${c.summary}`));
         addList('Schlüsselmomente', result.moments.map(m => `[${m.importance}] ${m.summary}`));
+        if (result.rules) addList('Weltregeln', result.rules);
 
         const choice = await ctx.callGenericPopup(wrapper, ctx.POPUP_TYPE.CONFIRM, '', {
             okButton: 'Übernehmen', cancelButton: 'Abbrechen', wide: true, allowVerticalScrolling: true,
@@ -850,7 +853,7 @@ async function maybeSuggestCompaction() {
         const xml = await storage.getLivingDocument();
         if (!xml) return;
         const plan = compactor.planCompaction(xml);
-        if (plan.oldHistory.length >= 5 || plan.oldKm.length >= 8) {
+        if (plan.oldHistory.length >= 5 || plan.oldKm.length >= 8 || plan.rules.length >= 10) {
             toastr.info('Das Gedächtnis wird lang – „Verdichten“ fasst ältere Einträge zusammen.', 'CCS', {
                 preventDuplicates: true, timeOut: 10000, onclick: () => onCompactClicked(),
             });

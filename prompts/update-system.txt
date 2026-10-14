@@ -48,7 +48,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
 3. Character evolution → prefer character_field_updates on field="current_state".
    core = static personality; current_state = dynamic mood/stance/trust-level.
 4. Key-Moments: only for narratively significant beats.
-5. World rules: only if EXPLICITLY stated in the chat. No inference from
+5. World rules: at most ONE per update, and only a genuinely new rule that is
+   not already covered by an existing <rule> (no rephrasings, no details of
+   existing rules – usually propose none). Only if EXPLICITLY stated in the chat. No inference from
    atmosphere or behavior.
 6. Scene update: only if location/present/mood actually changed in the window.
 7. Language: match the brain root's @lang attribute. String contents in the

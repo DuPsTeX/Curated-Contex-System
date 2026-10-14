@@ -21,6 +21,7 @@ import { validateBrainXml } from './initializer.js';
 import { resolveCursor, writeCursor } from './cursor.js';
 import { stripStatus } from './status.js';
 import * as llm from './llm.js';
+import { computeActivation, scoreOf, THRESHOLDS } from './activation.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -344,7 +345,9 @@ Any array may be []. scene_update may be null. reasoning MUST be present.
 3. Character evolution → prefer character_field_updates on field="current_state".
    core = static personality; current_state = dynamic mood/stance/trust-level.
 4. Key-Moments: only for narratively significant beats.
-5. World rules: only if EXPLICITLY stated in the chat. No inference from
+5. World rules: at most ONE per update, and only a genuinely new rule that is
+   not already covered by an existing <rule> (no rephrasings, no details of
+   existing rules – usually propose none). Only if EXPLICITLY stated in the chat. No inference from
    atmosphere or behavior.
 6. Scene update: only if location/present/mood actually changed in the window.
 7. Language: match the brain root's @lang attribute. String contents in the
@@ -557,13 +560,43 @@ const UPDATE_HISTORY_VISIBLE = 3;
  * braucht es vollständig (exakte Namen/IDs für Referenzen). Ältere Key-Moments
  * und Chronik-Einträge dagegen nicht – ohne Kürzung wächst jeder Update-Call
  * mit der Kampagne mit. Bilder (Base64) fliegen immer raus.
+ * Mit `messages` (Scan-Fenster) wird zusätzlich nach Aktivierung verschlankt:
+ * Figuren und Orte, die in diesen Nachrichten keine Rolle spielen, erscheinen nur
+ * mit Name, ID und Aliasen (reicht, um Doppelungen zu vermeiden); Beziehungen
+ * unbeteiligter Figuren ohne Verlauf; abgeschlossene Arcs nur mit Titel.
  * @param {string} migratedBrainXml
+ * @param {object} [opts]
+ * @param {string[]} [opts.messages] – Nachrichten des Scan-Fensters (älteste zuerst)
  * @returns {string}
  */
-export function buildUpdateBrain(migratedBrainXml) {
+export function buildUpdateBrain(migratedBrainXml, { messages = null } = {}) {
     const doc = new DOMParser().parseFromString(migratedBrainXml, 'application/xml');
     const root = doc.documentElement;
     if (doc.querySelector('parsererror') || !root || root.nodeName !== 'brain') return migratedBrainXml;
+
+    if (Array.isArray(messages) && messages.length) {
+        // Scan-Fenster ohne Abklingen: jede Nachricht darin ist gleich neu.
+        const result = computeActivation(root, { messages, decay: 1 });
+        const active = (key, threshold) => scoreOf(result, key) >= threshold;
+        const keepOnly = (el, keep) => [...el.children].forEach(c => { if (!keep.includes(c.nodeName)) c.remove(); });
+        const activeChars = new Set();
+        for (const ch of root.querySelectorAll(':scope > characters > character')) {
+            const name = ch.getAttribute('name');
+            if (ch.getAttribute('role') === 'main' || active(`char:${name}`, THRESHOLDS.char)) activeChars.add(name);
+            else keepOnly(ch, ['aliases']);
+        }
+        for (const loc of root.querySelectorAll(':scope > locations > location')) {
+            if (!active(`loc:${loc.getAttribute('name')}`, THRESHOLDS.loc)) keepOnly(loc, ['aliases']);
+        }
+        const main = root.querySelector(':scope > characters > character[role="main"]')?.getAttribute('name');
+        for (const rel of root.querySelectorAll(':scope > relationships > relationship')) {
+            const involved = [rel.getAttribute('from'), rel.getAttribute('to')].filter(n => n !== main);
+            if (!involved.some(n => activeChars.has(n))) keepOnly(rel, ['current']);
+        }
+        for (const arc of root.querySelectorAll(':scope > arcs > arc')) {
+            if (arc.getAttribute('status') !== 'active') keepOnly(arc, ['title']);
+        }
+    }
 
     root.querySelectorAll(':scope > characters > character > image').forEach(e => e.remove());
     root.querySelectorAll(':scope > characters > character[status]').forEach(e => e.removeAttribute('status'));
@@ -587,7 +620,7 @@ export function buildUpdateBrain(migratedBrainXml) {
 const CATEGORY_CAPS = {
     new_key_moments: 3,
     new_history_entries: 2,
-    new_world_rules: 3,
+    new_world_rules: 1,
     new_locations: 4,
     new_characters: 4,
     new_arcs: 2,
@@ -1118,7 +1151,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     const systemPrompt = await loadUpdateSystemPrompt();
     const userPrompt = buildUpdateUserPrompt({
         systemPrompt,
-        brainXml: buildUpdateBrain(migratedBrainXml),
+        brainXml: buildUpdateBrain(migratedBrainXml, { messages: scanWindow.map(m => stripStatus(String(m.mes ?? ''))) }),
         scanWindow,
         langOverride: lang,
         statusSync: settings?.statusSync !== false,
@@ -1245,6 +1278,9 @@ function findRelationshipByPair(doc, from, to) {
     return null;
 }
 
+/** So viele jüngste Wendepunkte bleiben pro Beziehung erhalten. */
+const REL_MOMENTS_KEEP = 6;
+
 function findArcById(doc, id) {
     for (const a of doc.querySelectorAll('arcs > arc')) {
         if (a.getAttribute('id') === id) return a;
@@ -1357,6 +1393,9 @@ function applyRelationshipUpdate(doc, p) {
         rel.appendChild(km);
     }
     appendTextChild(km, 'moment', p.delta, doc);
+    // Nur die jüngsten Wendepunkte behalten – sonst wächst jede Beziehung mit jedem Update.
+    const moments = [...km.children];
+    moments.slice(0, Math.max(0, moments.length - REL_MOMENTS_KEEP)).forEach(m => m.remove());
     if (p.new_current) {
         let current = rel.querySelector(':scope > current');
         if (!current) {
