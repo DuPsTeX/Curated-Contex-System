@@ -9,6 +9,8 @@
 // Leitprinzip: Fail-soft. Director-Fehler blocken nie die Hauptgenerierung.
 // Der Performer läuft auch ohne Director-Brief normal weiter.
 
+import * as llm from './llm.js';
+
 const LOG_PREFIX = '[CCS]';
 
 const DETAIL_CONFIG = {
@@ -103,11 +105,11 @@ export async function runDirector({ ctx, brain, chatWindow, detail = 'standard' 
 
     console.log(`${LOG_PREFIX} director: calling LLM (detail=${detail}, brainChars=${brain?.length || 0}, chatMessages=${chatWindow.length})`);
 
-    const raw = await ctx.generateRaw({
+    const raw = await llm.generate(ctx, {
         prompt: userPrompt,
         systemPrompt,
-        instructOverride: true,
         responseLength: dc.responseLength,
+        task: 'director',
     });
 
     if (typeof raw !== 'string' || !raw.trim()) {

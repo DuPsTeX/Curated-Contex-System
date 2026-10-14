@@ -20,6 +20,7 @@ import { validateBrainXml } from './initializer.js';
 
 import { resolveCursor, writeCursor } from './cursor.js';
 import { stripStatus } from './status.js';
+import * as llm from './llm.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -522,6 +523,29 @@ export function extractJson(raw) {
     }
     // Unbalanced – gib alles ab dem ersten `{` zurück, JSON.parse wird werfen.
     return s.slice(start);
+}
+
+/**
+ * extractJson + JSON.parse, tolerant gegen typische Kleinfehler.
+ * @param {string} raw
+ * @returns {any}
+ */
+export function parseJsonLoose(raw) {
+    const text = extractJson(raw);
+    try {
+        return JSON.parse(text);
+    } catch (first) {
+        // Typische Kleinfehler von Modellen ohne Nachdenkphase: Komma vor } oder ],
+        // Steuerzeichen in Strings. Ein zweiter Versuch nach Reparatur – sonst Original-Fehler.
+        const repaired = text
+            .replace(/,\s*([}\]])/g, '$1')
+            .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ' ');
+        try {
+            return JSON.parse(repaired);
+        } catch {
+            throw first;
+        }
+    }
 }
 
 /** Wie viele der jüngsten Key-Moments / History-Einträge das Update-LLM sieht. */
@@ -1108,11 +1132,12 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
 
     let raw;
     try {
-        raw = await ctx.generateRaw({
+        raw = await llm.generate(ctx, {
             prompt: userPrompt,
             systemPrompt: '',
-            instructOverride: true,
             responseLength: UPDATE_RESPONSE_LENGTH,
+            task: 'update',
+            json: true,
         });
     } catch (e) {
         if (/no message generated/i.test(e?.message || '')) {
@@ -1124,7 +1149,7 @@ export async function runUpdate({ ctx, settings, holdBack = 0 }) {
     const jsonText = extractJson(raw);
     let json;
     try {
-        json = JSON.parse(jsonText);
+        json = parseJsonLoose(jsonText);
     } catch (e) {
         console.warn(`${LOG_PREFIX} runUpdate JSON parse failed: ${e?.message || e}\nraw response:\n`, raw);
         const err = new Error(`Update-Antwort nicht als JSON verwertbar: ${e?.message || e}`);

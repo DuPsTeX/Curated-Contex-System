@@ -13,6 +13,7 @@ import * as compactor from './src/compactor.js';
 import * as status from './src/status.js';
 import * as guard from './src/guard.js';
 import * as semantic from './src/semantic.js';
+import * as llm from './src/llm.js';
 
 /**
  * Stabile Identität der Extension. Wird als Key in `extensionSettings` genutzt
@@ -64,6 +65,8 @@ const DEFAULT_SETTINGS = {
     threadNudge: true,
     threadAge: 40,
     semanticEnabled: false,
+    ccsProfile: '',
+    ccsNoReasoning: true,
 };
 
 function getContext() {
@@ -1068,6 +1071,32 @@ function bindUI() {
         });
     }
 
+    // Verbindung für CCS-Hintergrundaufgaben
+    const $profile = $('#ccs-profile');
+    const fillProfiles = () => {
+        const current = getSettings().ccsProfile || '';
+        $profile.empty().append($('<option>').val('').text('Aktive Verbindung'));
+        for (const p of llm.listProfiles()) $profile.append($('<option>').val(p.id).text(p.name || p.id));
+        $profile.val(current);
+        if ($profile.val() !== current) $profile.val('');
+    };
+    fillProfiles();
+    $profile.on('focus mousedown', fillProfiles);
+    $profile.on('change', function () {
+        const s = getSettings();
+        s.ccsProfile = String($(this).val() || '');
+        saveSettings();
+        console.log(`${LOG_PREFIX} ccsProfile set to ${s.ccsProfile || '(active connection)'}`);
+    });
+    const $noReasoning = $('#ccs-no-reasoning');
+    $noReasoning.prop('checked', settings.ccsNoReasoning !== false);
+    $noReasoning.on('change', function () {
+        const s = getSettings();
+        s.ccsNoReasoning = $(this).prop('checked');
+        saveSettings();
+        console.log(`${LOG_PREFIX} ccsNoReasoning set to ${s.ccsNoReasoning}`);
+    });
+
     const $guardMode = $('#ccs-guard-mode');
     $guardMode.val(settings.guardMode || 'off');
     $guardMode.on('change', function () {
@@ -1238,6 +1267,7 @@ async function init() {
 
     getSettings();
     guard.init({ getSettings });
+    llm.init({ getSettings });
 
     await mountSettingsPanel();
 
@@ -1322,7 +1352,7 @@ async function init() {
 //   ccs.updater.migrateLegacyBrain('<brain>...</brain>')    // Phase 2
 //   ccs.updater.slugify('Ägyptens Sonne') / .generateId('loc', name, set)
 //   ccs.popup.renderUpdatePopup({ proposals, migratedBrainXml, reasoning })   // Phase 2
-globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status, guard, semantic };
+globalThis.ccs = { storage, collector, initializer, interceptor, updater, popup, hub, director, pins, render, cursor, compactor, status, guard, semantic, llm };
 
 globalThis.ccsInterceptor = async function (chat, contextSize, abort, type) {
     try {

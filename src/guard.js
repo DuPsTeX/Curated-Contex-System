@@ -16,7 +16,8 @@ import * as storage from './storage.js';
 import { filterBrainByRelevance } from './interceptor.js';
 import { renderCompact } from './render.js';
 import { splitStatus, stripStatus } from './status.js';
-import { extractJson } from './updater.js';
+import { parseJsonLoose } from './updater.js';
+import * as llm from './llm.js';
 
 const LOG_PREFIX = '[CCS]';
 const CHECK_RESPONSE_LENGTH = 8000;
@@ -33,11 +34,15 @@ const DEFAULT_CHECK_PROMPT = `You are a continuity checker for a roleplay story.
 - wrong names, contradicting established relationship facts or world rules
 
 NOT contradictions: lies, deception, dreams, flashbacks, speculation, rumors, jokes, deliberate plot twists, new information that does not conflict, stylistic choices, anything the canon simply does not mention.
-If you are unsure, use severity "soft". Quote the exact passage from the REPLY (verbatim, short).
+For every passage you consider, FIRST write your analysis, THEN decide the verdict:
+- "hard" – the passage clearly contradicts a fact above
+- "soft" – possibly inconsistent, you are not sure
+- "none" – on reflection not a contradiction (these are discarded)
+Quote the exact passage from the REPLY (verbatim, short).
 
-Return ONLY one JSON object, no prose, no markdown fences:
-{"issues":[{"severity":"hard|soft","quote":"...","problem":"...","fix":"..."}]}
-Use an empty list if everything is consistent. Write problem and fix in the language of the reply. Keep internal deliberation brief.`;
+Return ONLY one JSON object, no prose, no markdown fences. Keep the key order:
+{"issues":[{"quote":"...","analysis":"which fact it conflicts with and why","verdict":"hard|soft|none","fix":"..."}]}
+Use an empty list if everything is consistent. Write analysis and fix in the language of the reply. Keep internal deliberation brief.`;
 
 const DEFAULT_FIX_PROMPT = `You are revising your own roleplay reply to fix continuity errors. Change ONLY what is needed to fix the listed contradictions, with the smallest possible edit. Keep everything else exactly as it is: wording, style, formatting (markdown, asterisks, quotes), paragraphs, length and perspective. Do not add any commentary. Output ONLY the full revised reply.`;
 
@@ -144,23 +149,30 @@ export async function checkMessage({ ctx, brainXml, messageId }) {
         'Return the JSON object now.',
     ].join('\n');
 
-    const raw = await ctx.generateRaw({
+    const raw = await llm.generate(ctx, {
         prompt,
         systemPrompt: await loadPrompt('guard-check-system.txt', DEFAULT_CHECK_PROMPT),
-        instructOverride: true,
         responseLength: CHECK_RESPONSE_LENGTH,
+        task: 'guard check',
+        json: true,
     });
     let json;
     try {
-        json = JSON.parse(extractJson(raw));
+        json = parseJsonLoose(raw);
     } catch (e) {
         throw new Error(`Prüf-Antwort nicht als JSON verwertbar: ${e?.message || e}`);
     }
     const str = (x) => (typeof x === 'string' ? x.trim() : '');
     const replyNorm = normalize(reply);
+    // Urteil steht im Schema NACH der Analyse – so entscheidet auch ein Modell ohne
+    // Nachdenkphase erst, nachdem es die Stelle begründet hat. "none" = verworfen.
     const issues = (Array.isArray(json.issues) ? json.issues : [])
-        .map(i => ({ severity: i?.severity === 'hard' ? 'hard' : 'soft', quote: str(i?.quote), problem: str(i?.problem), fix: str(i?.fix) }))
-        .filter(i => i.problem)
+        .map(i => {
+            const verdict = String(i?.verdict ?? i?.severity ?? '').toLowerCase();
+            return { verdict, severity: verdict === 'hard' ? 'hard' : 'soft', quote: str(i?.quote), problem: str(i?.analysis ?? i?.problem), fix: str(i?.fix) };
+        })
+        .filter(i => i.problem && i.verdict !== 'none')
+        .map(({ verdict, ...i }) => i)
         // Zitat nicht in der Antwort auffindbar → unsicher, nur markieren
         .map(i => (i.severity === 'hard' && i.quote && !replyNorm.includes(normalize(i.quote)) ? { ...i, severity: 'soft' } : i));
     return { issues, canon };
@@ -181,11 +193,11 @@ export async function rewriteMessage({ ctx, text, issues, canon }) {
         'Output the full revised reply now.',
     ].join('\n');
 
-    const raw = await ctx.generateRaw({
+    const raw = await llm.generate(ctx, {
         prompt,
         systemPrompt: await loadPrompt('guard-fix-system.txt', DEFAULT_FIX_PROMPT),
-        instructOverride: true,
         responseLength: FIX_RESPONSE_LENGTH,
+        task: 'guard fix',
     });
     let revised = String(raw ?? '').trim().replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '').trim();
     const ratio = revised.length / Math.max(1, parts.body.length);

@@ -5,7 +5,8 @@
 // bleiben unangetastet (die braucht die laufende Szene im Detail).
 // Ablauf: planCompaction → runCompaction (LLM, JSON) → Review → applyCompaction.
 
-import { generateId, extractJson, prettyPrintXml } from './updater.js';
+import { generateId, parseJsonLoose, prettyPrintXml } from './updater.js';
+import * as llm from './llm.js';
 
 const LOG_PREFIX = '[CCS]';
 
@@ -102,16 +103,17 @@ export async function runCompaction({ ctx, brainXml }) {
         })),
     };
 
-    const raw = await ctx.generateRaw({
+    const raw = await llm.generate(ctx, {
         prompt: `${JSON.stringify(input, null, 1)}\n\nConsolidate this memory. Output the JSON object now.`,
         systemPrompt: await loadCompactSystemPrompt(),
-        instructOverride: true,
         responseLength: RESPONSE_LENGTH,
+        task: 'compaction',
+        json: true,
     });
 
     let json;
     try {
-        json = JSON.parse(extractJson(raw));
+        json = parseJsonLoose(raw);
     } catch (e) {
         console.warn(`${LOG_PREFIX} compactor: JSON parse failed`, raw);
         throw new Error(`Antwort nicht als JSON verwertbar: ${e?.message || e}`);

@@ -100,6 +100,24 @@
 
             <div class="ccs-auto-section">
                 <div class="ccs-director-header">
+                    <i class="fa-solid fa-plug"></i>
+                    <span>Verbindung für CCS-Aufgaben</span>
+                </div>
+
+                <div class="ccs-token-row">
+                    <label for="ccs-profile"><strong>Profil</strong></label>
+                    <select id="ccs-profile" class="text_pole"></select>
+                    <small>Update, Wächter, Verdichten und Director laufen über dieses Verbindungsprofil (Connection Manager) – z.B. ein schnelles, günstiges Modell. Die Erzähl-KI bleibt unverändert.</small>
+                </div>
+
+                <label class="checkbox_label" for="ccs-no-reasoning" title="Reasoning-Modelle (z.B. DeepSeek) denken sonst 20–40 s pro Aufgabe nach. Für JSON-Auswertung und Prüfungen bringt das kaum Qualität. Nutzt das aktive Profil des Connection Managers, wenn oben keins gewählt ist.">
+                    <input id="ccs-no-reasoning" type="checkbox" />
+                    <span>Nachdenken (Reasoning) für CCS-Aufgaben abschalten</span>
+                </label>
+            </div>
+
+            <div class="ccs-auto-section">
+                <div class="ccs-director-header">
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>Kontinuitäts-Wächter</span>
                 </div>
